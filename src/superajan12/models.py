@@ -60,6 +60,22 @@ class OrderBookSnapshot(BaseModel):
         return ((self.best_ask - self.best_bid) / self.mid) * 10_000
 
 
+class ResolutionCheck(BaseModel):
+    decision: Decision
+    confidence: float
+    reasons: list[str] = Field(default_factory=list)
+    source: str | None = None
+
+
+class ProbabilityEstimate(BaseModel):
+    market_id: str
+    implied_probability: float | None
+    model_probability: float | None
+    edge: float | None
+    confidence: float
+    reasons: list[str] = Field(default_factory=list)
+
+
 class MarketScore(BaseModel):
     market_id: str
     question: str
@@ -72,6 +88,10 @@ class MarketScore(BaseModel):
     best_bid: float | None = None
     best_ask: float | None = None
     orderbook_source: str | None = None
+    implied_probability: float | None = None
+    model_probability: float | None = None
+    edge: float | None = None
+    resolution_confidence: float | None = None
     suggested_paper_risk_usdc: float = 0.0
 
 
@@ -87,8 +107,25 @@ class PaperTradeIdea(BaseModel):
     side: str
     reference_price: float | None
     risk_usdc: float
+    model_probability: float | None = None
+    edge: float | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     reasons: list[str] = Field(default_factory=list)
+
+
+class PaperPosition(BaseModel):
+    market_id: str
+    question: str
+    side: str
+    entry_price: float
+    size_shares: float
+    risk_usdc: float
+    opened_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    status: str = "open"
+
+    @property
+    def notional_usdc(self) -> float:
+        return self.entry_price * self.size_shares
 
 
 class ScanResult(BaseModel):
@@ -97,3 +134,4 @@ class ScanResult(BaseModel):
     limit: int
     scores: list[MarketScore]
     ideas: list[PaperTradeIdea]
+    paper_positions: list[PaperPosition] = Field(default_factory=list)
