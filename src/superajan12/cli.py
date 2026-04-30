@@ -11,13 +11,15 @@ from superajan12.agents.reference import CryptoReferenceAgent
 from superajan12.agents.risk import RiskEngine
 from superajan12.agents.scanner import MarketScannerAgent
 from superajan12.audit import AuditLogger
+from superajan12.capital_limits import CapitalLimitEngine
 from superajan12.config import get_settings
 from superajan12.connectors.binance import BinanceFuturesClient
 from superajan12.connectors.coinbase import CoinbasePublicClient
 from superajan12.connectors.okx import OKXPublicClient
 from superajan12.connectors.polymarket import PolymarketClient
 from superajan12.endpoint_check import verify_polymarket_public_endpoints
-from superajan12.execution_guard import ExecutionGuard
+from superajan12.execution_guard import ExecutionGuard, ExecutionDecision
+from superajan12.live_connector import LiveExecutionConnector
 from superajan12.model_registry import ModelRegistry, ModelVersion
 from superajan12.reconciliation import ReconciliationAgent
 from superajan12.reporting import Reporter
@@ -52,9 +54,15 @@ def build_parser() -> argparse.ArgumentParser:
     shadow.add_argument("--risk-usdc", type=float, required=True)
     shadow.add_argument("--latest-price", type=float, required=True)
 
+    subparsers.add_parser("shadow-report", help="Show aggregate shadow outcome report")
+
     strategy = subparsers.add_parser("strategy-score", help="Score a strategy from comma-separated PnL values")
     strategy.add_argument("--name", required=True)
     strategy.add_argument("--pnl", required=True, help="Comma-separated PnL values, e.g. 1.2,-0.5,0.8")
+    strategy.add_argument("--save", action="store_true", help="Save score to SQLite")
+
+    strategy_list = subparsers.add_parser("strategy-list", help="List stored strategy scores")
+    strategy_list.add_argument("--limit", type=int, default=10)
 
     model = subparsers.add_parser("model-register", help="Validate and store a model version")
     model.add_argument("--name", required=True)
@@ -62,14 +70,32 @@ def build_parser() -> argparse.ArgumentParser:
     model.add_argument("--status", required=True, choices=sorted(ModelRegistry.allowed_statuses))
     model.add_argument("--notes", default=None)
 
+    model_list = subparsers.add_parser("model-list", help="List stored model versions")
+    model_list.add_argument("--limit", type=int, default=20)
+
     reconcile = subparsers.add_parser("reconcile", help="Compare local and external open position counts")
     reconcile.add_argument("--local", type=int, required=True)
     reconcile.add_argument("--external", type=int, required=True)
+
+    capital = subparsers.add_parser("capital-check", help="Check hard capital limits")
+    capital.add_argument("--requested-risk", type=float, required=True)
+    capital.add_argument("--open-risk", type=float, required=True)
+    capital.add_argument("--daily-pnl", type=float, required=True)
+    capital.add_argument("--max-single", type=float, default=10.0)
+    capital.add_argument("--max-open", type=float, default=50.0)
+    capital.add_argument("--max-daily-loss", type=float, default=20.0)
 
     exec_check = subparsers.add_parser("execution-check", help="Check live execution safety gates without sending orders")
     exec_check.add_argument("--mode", choices=["paper", "shadow", "live"], default="paper")
     exec_check.add_argument("--secrets-ready", action="store_true")
     exec_check.add_argument("--approve", action="store_true")
+
+    prepare = subparsers.add_parser("prepare-order", help="Prepare a dry-run order shape only")
+    prepare.add_argument("--market-id", required=True)
+    prepare.add_argument("--side", default="YES")
+    prepare.add_argument("--price", type=float, required=True)
+    prepare.add_argument("--size", type=float, required=True)
+    prepare.add_argument("--force-guard", action="store_true", help="Use an allowed guard decision for dry-run testing")
 
     subparsers.add_parser("init-db", help="Create or migrate the local SQLite schema")
     subparsers.add_parser("verify-endpoints", help="Verify public Polymarket endpoints used by scanner")
@@ -286,6 +312,16 @@ def shadow_mark(args: argparse.Namespace) -> None:
     console.print(outcome.model_dump())
 
 
+def shadow_report() -> None:
+    summary = SQLiteStore(get_settings().sqlite_path).shadow_summary()
+    table = Table(title="Shadow Outcome Summary")
+    table.add_column("Field")
+    table.add_column("Value")
+    for key, value in summary.items():
+        table.add_row(str(key), str(value))
+    console.print(table)
+
+
 def strategy_score(args: argparse.Namespace) -> None:
     pnl_values = [float(value.strip()) for value in args.pnl.split(",") if value.strip()]
     score = StrategyScorer().score(args.name, pnl_values)
@@ -300,6 +336,19 @@ def strategy_score(args: argparse.Namespace) -> None:
         "-" if score.avg_pnl_usdc is None else f"{score.avg_pnl_usdc:.4f}",
         f"{score.score:.4f}",
     )
+    console.print(table)
+    if args.save:
+        score_id = SQLiteStore(get_settings().sqlite_path).save_strategy_score(score)
+        console.print(f"[green]Saved strategy_score_id={score_id}[/green]")
+
+
+def strategy_list(limit: int) -> None:
+    rows = SQLiteStore(get_settings().sqlite_path).list_strategy_scores(limit=limit)
+    table = Table(title="Stored Strategy Scores")
+    for column in ("id", "strategy_name", "sample_count", "total_pnl_usdc", "win_rate", "avg_pnl_usdc", "score", "created_at"):
+        table.add_column(column)
+    for row in rows:
+        table.add_row(*(str(row.get(column)) for column in ("id", "strategy_name", "sample_count", "total_pnl_usdc", "win_rate", "avg_pnl_usdc", "score", "created_at")))
     console.print(table)
 
 
@@ -317,10 +366,35 @@ def model_register(args: argparse.Namespace) -> None:
     console.print(f"can_trade_live={registry.can_trade_live(version)}")
 
 
+def model_list(limit: int) -> None:
+    rows = SQLiteStore(get_settings().sqlite_path).list_model_versions(limit=limit)
+    table = Table(title="Model Versions")
+    for column in ("id", "name", "version", "status", "notes", "created_at"):
+        table.add_column(column)
+    for row in rows:
+        table.add_row(*(str(row.get(column)) for column in ("id", "name", "version", "status", "notes", "created_at")))
+    console.print(table)
+
+
 def reconcile(args: argparse.Namespace) -> None:
     result = ReconciliationAgent().compare_counts(args.local, args.external)
     console.print({"ok": result.ok, "reasons": result.reasons})
     if not result.ok:
+        raise SystemExit(1)
+
+
+def capital_check(args: argparse.Namespace) -> None:
+    decision = CapitalLimitEngine(
+        max_single_trade_usdc=args.max_single,
+        max_total_open_risk_usdc=args.max_open,
+        max_daily_loss_usdc=args.max_daily_loss,
+    ).check(
+        requested_risk_usdc=args.requested_risk,
+        current_open_risk_usdc=args.open_risk,
+        current_daily_pnl_usdc=args.daily_pnl,
+    )
+    console.print(decision)
+    if not decision.allowed:
         raise SystemExit(1)
 
 
@@ -343,6 +417,21 @@ def execution_check(args: argparse.Namespace) -> None:
         raise SystemExit(1)
 
 
+def prepare_order(args: argparse.Namespace) -> None:
+    guard = ExecutionDecision(
+        allowed=args.force_guard,
+        reasons=("forced dry-run guard for local test",) if args.force_guard else ("guard not forced",),
+    )
+    order = LiveExecutionConnector().prepare_order(
+        guard_decision=guard,
+        market_id=args.market_id,
+        side=args.side,
+        price=args.price,
+        size=args.size,
+    )
+    console.print(order)
+
+
 def main() -> None:
     args = build_parser().parse_args()
     if args.command == "scan":
@@ -351,14 +440,24 @@ def main() -> None:
         asyncio.run(run_reference_check(symbols=args.symbols))
     elif args.command == "shadow-mark":
         shadow_mark(args)
+    elif args.command == "shadow-report":
+        shadow_report()
     elif args.command == "strategy-score":
         strategy_score(args)
+    elif args.command == "strategy-list":
+        strategy_list(limit=args.limit)
     elif args.command == "model-register":
         model_register(args)
+    elif args.command == "model-list":
+        model_list(limit=args.limit)
     elif args.command == "reconcile":
         reconcile(args)
+    elif args.command == "capital-check":
+        capital_check(args)
     elif args.command == "execution-check":
         execution_check(args)
+    elif args.command == "prepare-order":
+        prepare_order(args)
     elif args.command == "init-db":
         init_db()
     elif args.command == "verify-endpoints":
