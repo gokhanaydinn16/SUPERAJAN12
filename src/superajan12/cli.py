@@ -6,6 +6,7 @@ import asyncio
 from rich.console import Console
 from rich.table import Table
 
+from superajan12.approval import ManualApprovalGate
 from superajan12.agents.reference import CryptoReferenceAgent
 from superajan12.agents.risk import RiskEngine
 from superajan12.agents.scanner import MarketScannerAgent
@@ -16,8 +17,14 @@ from superajan12.connectors.coinbase import CoinbasePublicClient
 from superajan12.connectors.okx import OKXPublicClient
 from superajan12.connectors.polymarket import PolymarketClient
 from superajan12.endpoint_check import verify_polymarket_public_endpoints
+from superajan12.execution_guard import ExecutionGuard
+from superajan12.model_registry import ModelRegistry, ModelVersion
+from superajan12.reconciliation import ReconciliationAgent
 from superajan12.reporting import Reporter
+from superajan12.safety import SafetyController
+from superajan12.shadow import ShadowEvaluator
 from superajan12.storage import SQLiteStore
+from superajan12.strategy import StrategyScorer
 
 console = Console()
 
@@ -35,6 +42,34 @@ def build_parser() -> argparse.ArgumentParser:
 
     report_parser = subparsers.add_parser("report", help="Show local paper/shadow report")
     report_parser.add_argument("--top", type=int, default=10)
+
+    shadow = subparsers.add_parser("shadow-mark", help="Mark one paper position with latest price")
+    shadow.add_argument("--position-id", type=int, required=True)
+    shadow.add_argument("--market-id", required=True)
+    shadow.add_argument("--entry-price", type=float, required=True)
+    shadow.add_argument("--size-shares", type=float, required=True)
+    shadow.add_argument("--side", default="YES")
+    shadow.add_argument("--risk-usdc", type=float, required=True)
+    shadow.add_argument("--latest-price", type=float, required=True)
+
+    strategy = subparsers.add_parser("strategy-score", help="Score a strategy from comma-separated PnL values")
+    strategy.add_argument("--name", required=True)
+    strategy.add_argument("--pnl", required=True, help="Comma-separated PnL values, e.g. 1.2,-0.5,0.8")
+
+    model = subparsers.add_parser("model-register", help="Validate and store a model version")
+    model.add_argument("--name", required=True)
+    model.add_argument("--version", required=True)
+    model.add_argument("--status", required=True, choices=sorted(ModelRegistry.allowed_statuses))
+    model.add_argument("--notes", default=None)
+
+    reconcile = subparsers.add_parser("reconcile", help="Compare local and external open position counts")
+    reconcile.add_argument("--local", type=int, required=True)
+    reconcile.add_argument("--external", type=int, required=True)
+
+    exec_check = subparsers.add_parser("execution-check", help="Check live execution safety gates without sending orders")
+    exec_check.add_argument("--mode", choices=["paper", "shadow", "live"], default="paper")
+    exec_check.add_argument("--secrets-ready", action="store_true")
+    exec_check.add_argument("--approve", action="store_true")
 
     subparsers.add_parser("init-db", help="Create or migrate the local SQLite schema")
     subparsers.add_parser("verify-endpoints", help="Verify public Polymarket endpoints used by scanner")
@@ -233,12 +268,97 @@ def report(top: int = 10) -> None:
         console.print(top_table)
 
 
+def shadow_mark(args: argparse.Namespace) -> None:
+    from superajan12.models import PaperPosition
+
+    settings = get_settings()
+    position = PaperPosition(
+        market_id=args.market_id,
+        question=args.market_id,
+        side=args.side,
+        entry_price=args.entry_price,
+        size_shares=args.size_shares,
+        risk_usdc=args.risk_usdc,
+    )
+    outcome = ShadowEvaluator().evaluate_position(position, latest_price=args.latest_price)
+    outcome_id = SQLiteStore(settings.sqlite_path).save_shadow_outcome(args.position_id, outcome)
+    console.print(f"[green]Saved shadow_outcome_id={outcome_id}[/green]")
+    console.print(outcome.model_dump())
+
+
+def strategy_score(args: argparse.Namespace) -> None:
+    pnl_values = [float(value.strip()) for value in args.pnl.split(",") if value.strip()]
+    score = StrategyScorer().score(args.name, pnl_values)
+    table = Table(title="Strategy Score")
+    for field in ("strategy_name", "sample_count", "total_pnl_usdc", "win_rate", "avg_pnl_usdc", "score"):
+        table.add_column(field)
+    table.add_row(
+        score.strategy_name,
+        str(score.sample_count),
+        f"{score.total_pnl_usdc:.4f}",
+        "-" if score.win_rate is None else f"{score.win_rate:.4f}",
+        "-" if score.avg_pnl_usdc is None else f"{score.avg_pnl_usdc:.4f}",
+        f"{score.score:.4f}",
+    )
+    console.print(table)
+
+
+def model_register(args: argparse.Namespace) -> None:
+    registry = ModelRegistry()
+    version = ModelVersion(name=args.name, version=args.version, status=args.status, notes=args.notes)
+    registry.validate(version)
+    model_id = SQLiteStore(get_settings().sqlite_path).save_model_version(
+        name=version.name,
+        version=version.version,
+        status=version.status,
+        notes=version.notes,
+    )
+    console.print(f"[green]Saved model_version_id={model_id}[/green]")
+    console.print(f"can_trade_live={registry.can_trade_live(version)}")
+
+
+def reconcile(args: argparse.Namespace) -> None:
+    result = ReconciliationAgent().compare_counts(args.local, args.external)
+    console.print({"ok": result.ok, "reasons": result.reasons})
+    if not result.ok:
+        raise SystemExit(1)
+
+
+def execution_check(args: argparse.Namespace) -> None:
+    approval_gate = ManualApprovalGate()
+    ticket = None
+    if args.approve:
+        ticket = approval_gate.approve(
+            approval_gate.request("live_execution", "CLI execution-check"),
+            approved_by="cli-operator",
+        )
+    decision = ExecutionGuard(approval_gate).can_execute(
+        mode=args.mode,
+        safety_state=SafetyController().state(),
+        approval_ticket=ticket,
+        secrets_ready=args.secrets_ready,
+    )
+    console.print({"allowed": decision.allowed, "reasons": decision.reasons})
+    if not decision.allowed:
+        raise SystemExit(1)
+
+
 def main() -> None:
     args = build_parser().parse_args()
     if args.command == "scan":
         asyncio.run(run_scan(limit=args.limit, save=not args.no_save))
     elif args.command == "reference-check":
         asyncio.run(run_reference_check(symbols=args.symbols))
+    elif args.command == "shadow-mark":
+        shadow_mark(args)
+    elif args.command == "strategy-score":
+        strategy_score(args)
+    elif args.command == "model-register":
+        model_register(args)
+    elif args.command == "reconcile":
+        reconcile(args)
+    elif args.command == "execution-check":
+        execution_check(args)
     elif args.command == "init-db":
         init_db()
     elif args.command == "verify-endpoints":
