@@ -5,7 +5,7 @@ import sqlite3
 from pathlib import Path
 from typing import Iterable
 
-from superajan12.models import MarketScore, PaperPosition, PaperTradeIdea, ScanResult
+from superajan12.models import MarketScore, PaperPosition, PaperTradeIdea, ScanResult, ShadowOutcome
 
 
 class SQLiteStore:
@@ -105,6 +105,27 @@ class SQLiteStore:
                     reasons_json TEXT NOT NULL,
                     checked_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
                 );
+
+                CREATE TABLE IF NOT EXISTS strategy_scores (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    strategy_name TEXT NOT NULL,
+                    sample_count INTEGER NOT NULL,
+                    total_pnl_usdc REAL NOT NULL,
+                    win_rate REAL,
+                    avg_pnl_usdc REAL,
+                    score REAL NOT NULL,
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
+
+                CREATE TABLE IF NOT EXISTS model_versions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL,
+                    version TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    notes TEXT,
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(name, version)
+                );
                 """
             )
             for table, column, ddl in (
@@ -169,6 +190,51 @@ class SQLiteStore:
                 """
             ).fetchone()
             return None if row is None else dict(row)
+
+    def list_open_positions(self) -> list[dict[str, object]]:
+        with self.connect() as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                """
+                SELECT id, market_id, question, side, entry_price, size_shares, risk_usdc, opened_at, status
+                FROM paper_positions
+                WHERE status = 'open'
+                ORDER BY id ASC
+                """
+            ).fetchall()
+            return [dict(row) for row in rows]
+
+    def save_shadow_outcome(self, position_id: int, outcome: ShadowOutcome) -> int:
+        with self.connect() as conn:
+            cursor = conn.execute(
+                """
+                INSERT INTO shadow_outcomes (
+                    position_id, market_id, reference_price, latest_price,
+                    unrealized_pnl_usdc, status, reasons_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    position_id,
+                    outcome.market_id,
+                    outcome.reference_price,
+                    outcome.latest_price,
+                    outcome.unrealized_pnl_usdc,
+                    outcome.status,
+                    json.dumps(outcome.reasons, ensure_ascii=False),
+                ),
+            )
+            return int(cursor.lastrowid)
+
+    def save_model_version(self, name: str, version: str, status: str, notes: str | None = None) -> int:
+        with self.connect() as conn:
+            cursor = conn.execute(
+                """
+                INSERT OR REPLACE INTO model_versions (name, version, status, notes)
+                VALUES (?, ?, ?, ?)
+                """,
+                (name, version, status, notes),
+            )
+            return int(cursor.lastrowid)
 
     def _insert_scores(self, conn: sqlite3.Connection, scan_id: int, scores: Iterable[MarketScore]) -> None:
         conn.executemany(
