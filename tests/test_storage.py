@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from superajan12.models import Decision, MarketScore, PaperTradeIdea, ScanResult
+from superajan12.models import Decision, MarketScore, PaperPosition, PaperTradeIdea, ScanResult
 from superajan12.storage import SQLiteStore
 
 
@@ -22,6 +22,10 @@ def test_sqlite_store_saves_scan(tmp_path) -> None:
                 best_bid=0.49,
                 best_ask=0.51,
                 orderbook_source="book",
+                implied_probability=0.5,
+                model_probability=0.5,
+                edge=0.0,
+                resolution_confidence=0.8,
                 suggested_paper_risk_usdc=10,
                 reasons=["risk kontrolleri gecti"],
             )
@@ -33,7 +37,19 @@ def test_sqlite_store_saves_scan(tmp_path) -> None:
                 side="YES",
                 reference_price=0.5,
                 risk_usdc=10,
+                model_probability=0.5,
+                edge=0.0,
                 reasons=["risk kontrolleri gecti"],
+            )
+        ],
+        paper_positions=[
+            PaperPosition(
+                market_id="m1",
+                question="Test market?",
+                side="YES",
+                entry_price=0.5,
+                size_shares=20,
+                risk_usdc=10,
             )
         ],
     )
@@ -45,7 +61,13 @@ def test_sqlite_store_saves_scan(tmp_path) -> None:
         scan_count = conn.execute("SELECT COUNT(*) FROM scans").fetchone()[0]
         score_count = conn.execute("SELECT COUNT(*) FROM market_scores").fetchone()[0]
         idea_count = conn.execute("SELECT COUNT(*) FROM paper_trade_ideas").fetchone()[0]
+        position_count = conn.execute("SELECT COUNT(*) FROM paper_positions").fetchone()[0]
+        summary = conn.execute(
+            "SELECT paper_position_count FROM scans WHERE id = ?", (scan_id,)
+        ).fetchone()[0]
 
     assert scan_count == 1
     assert score_count == 1
     assert idea_count == 1
+    assert position_count == 1
+    assert summary == 1
