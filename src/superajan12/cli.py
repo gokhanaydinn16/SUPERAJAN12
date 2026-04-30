@@ -27,6 +27,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     subparsers.add_parser("init-db", help="Create or migrate the local SQLite schema")
     subparsers.add_parser("verify-endpoints", help="Verify public Polymarket endpoints used by scanner")
+    subparsers.add_parser("report", help="Show latest local scan summary")
     return parser
 
 
@@ -61,14 +62,16 @@ async def run_scan(limit: int, save: bool = True) -> None:
             audit.record("market.scored", {"scan_id": scan_id, **score.model_dump(mode="json")})
         for idea in result.ideas:
             audit.record("paper_trade.idea", {"scan_id": scan_id, **idea.model_dump(mode="json")})
+        for position in result.paper_positions:
+            audit.record("paper_position.opened", {"scan_id": scan_id, **position.model_dump(mode="json")})
 
     table = Table(title="SuperAjan12 Polymarket Scan")
     table.add_column("Decision")
     table.add_column("Score", justify="right")
+    table.add_column("Edge", justify="right")
+    table.add_column("ResConf", justify="right")
     table.add_column("Spread bps", justify="right")
     table.add_column("Source")
-    table.add_column("Volume", justify="right")
-    table.add_column("Liquidity", justify="right")
     table.add_column("Question")
     table.add_column("Reasons")
 
@@ -76,10 +79,10 @@ async def run_scan(limit: int, save: bool = True) -> None:
         table.add_row(
             score.decision.value,
             f"{score.score:,.1f}",
+            "-" if score.edge is None else f"{score.edge:.4f}",
+            "-" if score.resolution_confidence is None else f"{score.resolution_confidence:.2f}",
             "-" if score.spread_bps is None else f"{score.spread_bps:,.1f}",
             score.orderbook_source or "-",
-            f"{score.volume_usdc:,.0f}",
-            f"{score.liquidity_usdc:,.0f}",
             score.question[:80],
             "; ".join(score.reasons[:3]),
         )
@@ -95,10 +98,19 @@ async def run_scan(limit: int, save: bool = True) -> None:
         console.print("\n[bold green]Paper trade ideas[/bold green]")
         for idea in result.ideas:
             console.print(
-                f"- {idea.side} | risk={idea.risk_usdc:.2f} USDC | price={idea.reference_price} | {idea.question}"
+                f"- {idea.side} | risk={idea.risk_usdc:.2f} USDC | "
+                f"price={idea.reference_price} | edge={idea.edge} | {idea.question}"
             )
     else:
         console.print("\n[yellow]Risk motoru hicbir market icin paper trade izni vermedi.[/yellow]")
+
+    if result.paper_positions:
+        console.print("\n[bold cyan]Paper positions opened[/bold cyan]")
+        for position in result.paper_positions:
+            console.print(
+                f"- {position.side} | entry={position.entry_price:.4f} | "
+                f"shares={position.size_shares:.4f} | risk={position.risk_usdc:.2f} | {position.question}"
+            )
 
 
 async def run_verify_endpoints() -> None:
@@ -122,6 +134,21 @@ def init_db() -> None:
     console.print(f"[green]SQLite schema ready:[/green] {settings.sqlite_path}")
 
 
+def report() -> None:
+    settings = get_settings()
+    store = SQLiteStore(settings.sqlite_path)
+    summary = store.latest_scan_summary()
+    if summary is None:
+        console.print("[yellow]Henuz kayitli scan yok.[/yellow]")
+        return
+    table = Table(title="Latest SuperAjan12 Scan")
+    table.add_column("Field")
+    table.add_column("Value")
+    for key, value in summary.items():
+        table.add_row(str(key), str(value))
+    console.print(table)
+
+
 def main() -> None:
     args = build_parser().parse_args()
     if args.command == "scan":
@@ -130,6 +157,8 @@ def main() -> None:
         init_db()
     elif args.command == "verify-endpoints":
         asyncio.run(run_verify_endpoints())
+    elif args.command == "report":
+        report()
 
 
 if __name__ == "__main__":
