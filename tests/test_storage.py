@@ -21,11 +21,16 @@ def test_sqlite_store_saves_scan(tmp_path) -> None:
                 spread_bps=100,
                 best_bid=0.49,
                 best_ask=0.51,
+                bid_depth_usdc=49,
+                ask_depth_usdc=51,
                 orderbook_source="book",
                 implied_probability=0.5,
                 model_probability=0.5,
                 edge=0.0,
                 resolution_confidence=0.8,
+                liquidity_confidence=0.9,
+                manipulation_risk_score=0.1,
+                news_confidence=0.8,
                 suggested_paper_risk_usdc=10,
                 reasons=["risk kontrolleri gecti"],
             )
@@ -65,9 +70,17 @@ def test_sqlite_store_saves_scan(tmp_path) -> None:
         summary = conn.execute(
             "SELECT paper_position_count FROM scans WHERE id = ?", (scan_id,)
         ).fetchone()[0]
+        quality = conn.execute(
+            """
+            SELECT liquidity_confidence, manipulation_risk_score, news_confidence
+            FROM market_scores WHERE scan_id = ?
+            """,
+            (scan_id,),
+        ).fetchone()
 
     assert scan_count == 1
     assert score_count == 1
     assert idea_count == 1
     assert position_count == 1
     assert summary == 1
+    assert quality == (0.9, 0.1, 0.8)
