@@ -16,6 +16,7 @@ Bu repo once canli para kullanmadan calisacak bir cekirdek kurar:
 8. Her karari SQLite ve JSONL audit trail olarak kaydeder.
 9. Shadow mark-to-market, strategy score ve model version tracking yapar.
 10. Live execution icin secret, manual approval, capital limit ve execution guard bariyerleri kurar.
+11. Tek komutla acilan web dashboard sunar.
 
 ## Ana prensip
 
@@ -23,9 +24,42 @@ Bu repo once canli para kullanmadan calisacak bir cekirdek kurar:
 
 Canli emir motoru basit, disiplinli ve risk motoruna bagli kalacak. Ajanlar dusunecek; risk motoru izin verecek; emir motoru sadece onayli emri uygulayacak.
 
+## Tek uygulama olarak calistirma
+
+Kurulumdan sonra tek komutla panel acilir:
+
+```bash
+superajan12-web
+```
+
+Sonra tarayicida ac:
+
+```text
+http://127.0.0.1:8000
+```
+
+Dashboard su anda sunlari gosterir:
+
+- toplam scan sayisi
+- approve / watch sayilari
+- paper position sayisi
+- shadow outcome ve teorik PnL ozeti
+- en yuksek skorlu marketler
+- scan baslatma butonu
+- endpoint kontrol butonu
+- sistem log alani
+
 ## Mimari
 
 ```text
+Web Dashboard
+        |
+FastAPI app
+        |
+Scanner + Risk + Agents
+        |
+SQLite + JSONL Audit log
+
 Polymarket Gamma markets
         |
 Market Scanner Agent
@@ -39,8 +73,6 @@ Risk Engine
 Paper Trade Idea
         |
 Paper Portfolio
-        |
-SQLite + JSONL Audit log
         |
 Shadow mark-to-market + Strategy scoring
 
@@ -71,6 +103,12 @@ source .venv/bin/activate
 pip install -e .[dev]
 cp .env.example .env
 superajan12 init-db
+superajan12-web
+```
+
+Alternatif CLI dogrulama:
+
+```bash
 superajan12 verify-endpoints
 superajan12 reference-check --symbols BTC,ETH,SOL
 superajan12 scan --limit 25
@@ -135,6 +173,7 @@ Bu dosyalar `.gitignore` icindedir ve repoya yazilmaz.
 - Safe-mode aktifse yeni karar uretilmez.
 - Live mode bile secret + manual approval + capital limit + execution guard gecmeden emir hazirlayamaz.
 - Live connector su anda sadece dry-run order hazirlar; emir gondermez.
+- Web paneldeki scan butonu sadece paper/shadow kayit uretir; canli emir gondermez.
 - Faz 1/Faz 2 public-data katmaninda trading/auth endpointleri kullanilmaz.
 
 ## Endpoint notlari
@@ -159,7 +198,8 @@ Detay: `docs/ENDPOINTS.md`
 - Faz 3: Haber/kaynak guvenilirligi, sosyal sinyal ve smart wallet ajanlari.
 - Faz 4: Shadow trading performans raporu, strategy score ve model tracking.
 - Faz 5: Reconciliation, kill-switch, secret manager, capital limits ve dry-run live connector.
+- Faz 6: Web dashboard ve tek uygulama deneyimi.
 
 ## Mevcut durum
 
-Bu repo canli trading sistemi degil; canliya hazirlik yapan guvenli paper/shadow cekirdegidir. Canli emir gonderen adapter bilerek eklenmemistir. Bir sonraki gercek adim, kullanici ortaminda endpointleri calistirip paper/shadow performansini yeterli orneklemle dogrulamaktir.
+Bu repo canli trading sistemi degil; canliya hazirlik yapan guvenli paper/shadow cekirdegidir. Canli emir gonderen adapter bilerek eklenmemistir. Web dashboard eklendi; sistem artik `superajan12-web` komutuyla tek uygulama gibi acilabilir.
