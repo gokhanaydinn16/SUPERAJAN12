@@ -60,6 +60,9 @@ class SQLiteStore:
                     liquidity_confidence REAL,
                     manipulation_risk_score REAL,
                     news_confidence REAL,
+                    social_confidence REAL,
+                    smart_wallet_confidence REAL,
+                    reference_confidence REAL,
                     suggested_paper_risk_usdc REAL NOT NULL,
                     reasons_json TEXT NOT NULL
                 );
@@ -90,6 +93,18 @@ class SQLiteStore:
                     opened_at TEXT NOT NULL,
                     status TEXT NOT NULL
                 );
+
+                CREATE TABLE IF NOT EXISTS shadow_outcomes (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    position_id INTEGER NOT NULL REFERENCES paper_positions(id) ON DELETE CASCADE,
+                    market_id TEXT NOT NULL,
+                    reference_price REAL,
+                    latest_price REAL,
+                    unrealized_pnl_usdc REAL,
+                    status TEXT NOT NULL,
+                    reasons_json TEXT NOT NULL,
+                    checked_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
                 """
             )
             for table, column, ddl in (
@@ -103,6 +118,9 @@ class SQLiteStore:
                 ("market_scores", "liquidity_confidence", "REAL"),
                 ("market_scores", "manipulation_risk_score", "REAL"),
                 ("market_scores", "news_confidence", "REAL"),
+                ("market_scores", "social_confidence", "REAL"),
+                ("market_scores", "smart_wallet_confidence", "REAL"),
+                ("market_scores", "reference_confidence", "REAL"),
                 ("paper_trade_ideas", "model_probability", "REAL"),
                 ("paper_trade_ideas", "edge", "REAL"),
             ):
@@ -160,8 +178,9 @@ class SQLiteStore:
                 liquidity_usdc, spread_bps, best_bid, best_ask, bid_depth_usdc,
                 ask_depth_usdc, orderbook_source, implied_probability, model_probability,
                 edge, resolution_confidence, liquidity_confidence, manipulation_risk_score,
-                news_confidence, suggested_paper_risk_usdc, reasons_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                news_confidence, social_confidence, smart_wallet_confidence, reference_confidence,
+                suggested_paper_risk_usdc, reasons_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 (
@@ -185,6 +204,9 @@ class SQLiteStore:
                     score.liquidity_confidence,
                     score.manipulation_risk_score,
                     score.news_confidence,
+                    score.social_confidence,
+                    score.smart_wallet_confidence,
+                    score.reference_confidence,
                     score.suggested_paper_risk_usdc,
                     json.dumps(score.reasons, ensure_ascii=False),
                 )
