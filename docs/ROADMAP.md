@@ -27,19 +27,19 @@
 - [x] OKX referans verisi
 - [x] Coinbase spot referans verisi
 - [x] Kaynak tutarsizligi alarmi v1
-- [ ] Cross-market event mapping
-- [ ] Kalshi-Polymarket benzer market eslestirme skoru
+- [x] Cross-market event mapping v1
+- [x] Kalshi-Polymarket benzer market eslestirme skoru v1
 - [ ] Reference check sonucunu scanner risk kararina bagla
 
 ## Faz 3 - Ajan kalitesi
 
 - [x] Resolution Agent v1
 - [x] Probability Agent baseline v1
-- [ ] Liquidity Agent v2
-- [ ] News Reliability Agent
+- [x] Liquidity Agent v2
+- [x] News Reliability Agent v1
 - [ ] Social Signal Agent
 - [ ] Smart Wallet Intelligence Agent
-- [ ] Manipulasyon riski skoru
+- [x] Manipulasyon riski skoru v1
 
 ## Faz 4 - Shadow trading
 
@@ -65,6 +65,8 @@
 - Resolution belirsizse islem yok.
 - Likidite yetersizse islem yok.
 - Referans fiyat kaynaklari fazla saparsa kripto olay sinyalleri guvensiz sayilir.
+- Manipulasyon riski yuksekse islem yok.
+- Haber/kaynak guveni dusukse islem yok veya watch.
 - Safe-mode aktifse yeni islem yok.
 - Canli sistem kendi kodunu degistirmez.
 - Model gercek edge uretmedikce sahte guvenle islem acmaz.
