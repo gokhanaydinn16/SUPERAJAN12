@@ -29,7 +29,7 @@
 - [x] Kaynak tutarsizligi alarmi v1
 - [x] Cross-market event mapping v1
 - [x] Kalshi-Polymarket benzer market eslestirme skoru v1
-- [ ] Reference check sonucunu scanner risk kararina bagla
+- [x] Reference check sonucunu scanner risk kararina bagla
 
 ## Faz 3 - Ajan kalitesi
 
@@ -37,17 +37,18 @@
 - [x] Probability Agent baseline v1
 - [x] Liquidity Agent v2
 - [x] News Reliability Agent v1
-- [ ] Social Signal Agent
-- [ ] Smart Wallet Intelligence Agent
+- [x] Social Signal Agent v1
+- [x] Smart Wallet Intelligence Agent v1 placeholder
 - [x] Manipulasyon riski skoru v1
 
 ## Faz 4 - Shadow trading
 
 - [x] Paper position defteri v1
-- [ ] Canli veri ile emir gondermeden karar kaydi
-- [ ] Karar-sonuc performans raporu
+- [x] Canli veri ile emir gondermeden karar kaydi iskeleti
+- [x] Karar-sonuc performans mark-to-market iskeleti
 - [ ] Strateji skor sistemi
 - [ ] Model version tracking
+- [ ] Shadow outcomes CLI komutu
 
 ## Faz 5 - Kontrollu canli test
 
@@ -67,6 +68,8 @@
 - Referans fiyat kaynaklari fazla saparsa kripto olay sinyalleri guvensiz sayilir.
 - Manipulasyon riski yuksekse islem yok.
 - Haber/kaynak guveni dusukse islem yok veya watch.
+- Sosyal hype tek basina edge degildir.
+- Cuzdan sinyali gercek veri baglanmadan edge uretmez.
 - Safe-mode aktifse yeni islem yok.
 - Canli sistem kendi kodunu degistirmez.
 - Model gercek edge uretmedikce sahte guvenle islem acmaz.
