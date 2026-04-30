@@ -71,7 +71,9 @@ class PolymarketClient:
             response = await client.get(f"{self.clob_base_url}/midpoint", params={"token_id": token_id})
             response.raise_for_status()
             payload = response.json()
-        return self._float_or_none(payload.get("mid") or payload.get("midpoint"))
+        return self._float_or_none(
+            payload.get("mid_price") or payload.get("mid") or payload.get("midpoint")
+        )
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=0.5, min=0.5, max=4))
     async def get_spread(self, token_id: str) -> float | None:
