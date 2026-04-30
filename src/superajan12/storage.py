@@ -9,11 +9,7 @@ from superajan12.models import MarketScore, PaperPosition, PaperTradeIdea, ScanR
 
 
 class SQLiteStore:
-    """Small durable store for local paper/shadow mode.
-
-    This is intentionally simple for phase 1. It gives us persistence and audit
-    ability without introducing Postgres or a queue before the scanner is stable.
-    """
+    """Small durable store for local paper/shadow mode."""
 
     def __init__(self, path: Path) -> None:
         self.path = path
@@ -54,11 +50,16 @@ class SQLiteStore:
                     spread_bps REAL,
                     best_bid REAL,
                     best_ask REAL,
+                    bid_depth_usdc REAL NOT NULL DEFAULT 0,
+                    ask_depth_usdc REAL NOT NULL DEFAULT 0,
                     orderbook_source TEXT,
                     implied_probability REAL,
                     model_probability REAL,
                     edge REAL,
                     resolution_confidence REAL,
+                    liquidity_confidence REAL,
+                    manipulation_risk_score REAL,
+                    news_confidence REAL,
                     suggested_paper_risk_usdc REAL NOT NULL,
                     reasons_json TEXT NOT NULL
                 );
@@ -91,13 +92,21 @@ class SQLiteStore:
                 );
                 """
             )
-            self._ensure_column(conn, "scans", "paper_position_count", "INTEGER NOT NULL DEFAULT 0")
-            self._ensure_column(conn, "market_scores", "implied_probability", "REAL")
-            self._ensure_column(conn, "market_scores", "model_probability", "REAL")
-            self._ensure_column(conn, "market_scores", "edge", "REAL")
-            self._ensure_column(conn, "market_scores", "resolution_confidence", "REAL")
-            self._ensure_column(conn, "paper_trade_ideas", "model_probability", "REAL")
-            self._ensure_column(conn, "paper_trade_ideas", "edge", "REAL")
+            for table, column, ddl in (
+                ("scans", "paper_position_count", "INTEGER NOT NULL DEFAULT 0"),
+                ("market_scores", "bid_depth_usdc", "REAL NOT NULL DEFAULT 0"),
+                ("market_scores", "ask_depth_usdc", "REAL NOT NULL DEFAULT 0"),
+                ("market_scores", "implied_probability", "REAL"),
+                ("market_scores", "model_probability", "REAL"),
+                ("market_scores", "edge", "REAL"),
+                ("market_scores", "resolution_confidence", "REAL"),
+                ("market_scores", "liquidity_confidence", "REAL"),
+                ("market_scores", "manipulation_risk_score", "REAL"),
+                ("market_scores", "news_confidence", "REAL"),
+                ("paper_trade_ideas", "model_probability", "REAL"),
+                ("paper_trade_ideas", "edge", "REAL"),
+            ):
+                self._ensure_column(conn, table, column, ddl)
 
     def save_scan(self, result: ScanResult) -> int:
         approved = sum(1 for item in result.scores if item.decision.value == "approve")
@@ -141,19 +150,18 @@ class SQLiteStore:
                 LIMIT 1
                 """
             ).fetchone()
-            if row is None:
-                return None
-            return dict(row)
+            return None if row is None else dict(row)
 
     def _insert_scores(self, conn: sqlite3.Connection, scan_id: int, scores: Iterable[MarketScore]) -> None:
         conn.executemany(
             """
             INSERT INTO market_scores (
                 scan_id, market_id, question, decision, score, volume_usdc,
-                liquidity_usdc, spread_bps, best_bid, best_ask, orderbook_source,
-                implied_probability, model_probability, edge, resolution_confidence,
-                suggested_paper_risk_usdc, reasons_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                liquidity_usdc, spread_bps, best_bid, best_ask, bid_depth_usdc,
+                ask_depth_usdc, orderbook_source, implied_probability, model_probability,
+                edge, resolution_confidence, liquidity_confidence, manipulation_risk_score,
+                news_confidence, suggested_paper_risk_usdc, reasons_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 (
@@ -167,11 +175,16 @@ class SQLiteStore:
                     score.spread_bps,
                     score.best_bid,
                     score.best_ask,
+                    score.bid_depth_usdc,
+                    score.ask_depth_usdc,
                     score.orderbook_source,
                     score.implied_probability,
                     score.model_probability,
                     score.edge,
                     score.resolution_confidence,
+                    score.liquidity_confidence,
+                    score.manipulation_risk_score,
+                    score.news_confidence,
                     score.suggested_paper_risk_usdc,
                     json.dumps(score.reasons, ensure_ascii=False),
                 )
@@ -204,9 +217,7 @@ class SQLiteStore:
             ],
         )
 
-    def _insert_positions(
-        self, conn: sqlite3.Connection, scan_id: int, positions: Iterable[PaperPosition]
-    ) -> None:
+    def _insert_positions(self, conn: sqlite3.Connection, scan_id: int, positions: Iterable[PaperPosition]) -> None:
         conn.executemany(
             """
             INSERT INTO paper_positions (
