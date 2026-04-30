@@ -12,6 +12,7 @@ from superajan12.audit import AuditLogger
 from superajan12.config import get_settings
 from superajan12.connectors.polymarket import PolymarketClient
 from superajan12.endpoint_check import verify_polymarket_public_endpoints
+from superajan12.reporting import Reporter
 from superajan12.storage import SQLiteStore
 
 console = Console()
@@ -25,9 +26,11 @@ def build_parser() -> argparse.ArgumentParser:
     scan.add_argument("--limit", type=int, default=25)
     scan.add_argument("--no-save", action="store_true", help="Do not write SQLite or audit log records")
 
+    report_parser = subparsers.add_parser("report", help="Show local paper/shadow report")
+    report_parser.add_argument("--top", type=int, default=10)
+
     subparsers.add_parser("init-db", help="Create or migrate the local SQLite schema")
     subparsers.add_parser("verify-endpoints", help="Verify public Polymarket endpoints used by scanner")
-    subparsers.add_parser("report", help="Show latest local scan summary")
     return parser
 
 
@@ -134,19 +137,42 @@ def init_db() -> None:
     console.print(f"[green]SQLite schema ready:[/green] {settings.sqlite_path}")
 
 
-def report() -> None:
+def report(top: int = 10) -> None:
     settings = get_settings()
-    store = SQLiteStore(settings.sqlite_path)
-    summary = store.latest_scan_summary()
-    if summary is None:
-        console.print("[yellow]Henuz kayitli scan yok.[/yellow]")
-        return
-    table = Table(title="Latest SuperAjan12 Scan")
-    table.add_column("Field")
-    table.add_column("Value")
-    for key, value in summary.items():
-        table.add_row(str(key), str(value))
-    console.print(table)
+    reporter = Reporter(settings.sqlite_path)
+    aggregate = reporter.aggregate_summary()
+
+    summary_table = Table(title="SuperAjan12 Aggregate Report")
+    summary_table.add_column("Field")
+    summary_table.add_column("Value")
+    for key, value in aggregate.items():
+        summary_table.add_row(str(key), str(value))
+    console.print(summary_table)
+
+    latest = reporter.latest_summary()
+    if latest:
+        latest_table = Table(title="Latest Scan")
+        latest_table.add_column("Field")
+        latest_table.add_column("Value")
+        for key, value in latest.items():
+            latest_table.add_row(str(key), str(value))
+        console.print(latest_table)
+
+    top_markets = reporter.top_scored_markets(limit=top)
+    if top_markets:
+        top_table = Table(title="Top Scored Markets")
+        for column in ("decision", "score", "edge", "resolution_confidence", "spread_bps", "question"):
+            top_table.add_column(column)
+        for row in top_markets:
+            top_table.add_row(
+                str(row.get("decision")),
+                f"{row.get('score'):.2f}",
+                "-" if row.get("edge") is None else f"{row.get('edge'):.4f}",
+                "-" if row.get("resolution_confidence") is None else f"{row.get('resolution_confidence'):.2f}",
+                "-" if row.get("spread_bps") is None else f"{row.get('spread_bps'):.1f}",
+                str(row.get("question"))[:80],
+            )
+        console.print(top_table)
 
 
 def main() -> None:
@@ -158,7 +184,7 @@ def main() -> None:
     elif args.command == "verify-endpoints":
         asyncio.run(run_verify_endpoints())
     elif args.command == "report":
-        report()
+        report(top=args.top)
 
 
 if __name__ == "__main__":
