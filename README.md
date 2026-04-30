@@ -11,7 +11,7 @@ Bu repo once canli para kullanmadan calisacak bir cekirdek kurar:
 3. Resolution metnini ve risk bayraklarini kaydeder.
 4. Risk motorundan gecmeyen marketlerde islem acmaz.
 5. Paper trading sinyali uretir.
-6. Her karari audit trail olarak loglar.
+6. Her karari SQLite ve JSONL audit trail olarak kaydeder.
 
 ## Ana prensip
 
@@ -22,17 +22,19 @@ Canli emir motoru basit, disiplinli ve risk motoruna bagli kalacak. Ajanlar dusu
 ## Mimari
 
 ```text
-Polymarket market data
+Polymarket Gamma markets
         |
 Market Scanner Agent
         |
-Resolution + Liquidity + Probability checks
+Polymarket CLOB orderbook / midpoint / spread
+        |
+Liquidity + Risk checks
         |
 Risk Engine
         |
-Paper Trading Engine
+Paper Trade Idea
         |
-Audit log + report
+SQLite + JSONL Audit log
 ```
 
 Ilk asamada canli emir yoktur. Varsayilan mod `paper` modudur.
@@ -44,8 +46,33 @@ python -m venv .venv
 source .venv/bin/activate
 pip install -e .[dev]
 cp .env.example .env
-python -m superajan12.cli scan --limit 25
+superajan12 init-db
+superajan12 scan --limit 25
 ```
+
+Kaydetmeden deneme:
+
+```bash
+superajan12 scan --limit 25 --no-save
+```
+
+Test:
+
+```bash
+ruff check src tests
+pytest -q
+```
+
+## Local ciktilar
+
+Varsayilan olarak su dosyalar olusur:
+
+```text
+data/superajan12.sqlite3
+data/audit/events.jsonl
+```
+
+Bu dosyalar `.gitignore` icindedir ve repoya yazilmaz.
 
 ## Guvenlik
 
@@ -55,11 +82,21 @@ python -m superajan12.cli scan --limit 25
 - Resolution belirsizse islem yoktur.
 - Likidite yetersizse islem yoktur.
 - Safe-mode aktifse yeni karar uretilmez.
+- Faz 1'de trading/auth endpointleri kullanilmaz.
+
+## Endpoint notlari
+
+- Gamma API: aktif marketleri bulmak icin `/markets`.
+- CLOB API: `/book`, `/midpoint`, `/spread` ile orderbook ve fiyat okuma.
+- Full orderbook basarisizsa scanner midpoint/spread fallback kullanir.
+- Trading endpointleri bu fazda kapali tutulur.
+
+Detay: `docs/ENDPOINTS.md`
 
 ## Yol haritasi
 
-- Faz 1: Polymarket veri okuma + market puanlama + paper trading.
+- Faz 1: Polymarket veri okuma + market puanlama + SQLite/audit log + paper trading.
 - Faz 2: Resolution agent + haber/kaynak dogrulama.
 - Faz 3: Kalshi, Binance, OKX, Coinbase veri katmani.
 - Faz 4: Shadow trading.
-- Faz 5: Kucuk sermaye ile kontrollu canli test.
+- Faz 5: Reconciliation, kill-switch, secret manager ve kucuk sermaye ile kontrollu canli test.
