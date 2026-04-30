@@ -11,6 +11,7 @@ from superajan12.agents.scanner import MarketScannerAgent
 from superajan12.audit import AuditLogger
 from superajan12.config import get_settings
 from superajan12.connectors.polymarket import PolymarketClient
+from superajan12.endpoint_check import verify_polymarket_public_endpoints
 from superajan12.storage import SQLiteStore
 
 console = Console()
@@ -25,15 +26,21 @@ def build_parser() -> argparse.ArgumentParser:
     scan.add_argument("--no-save", action="store_true", help="Do not write SQLite or audit log records")
 
     subparsers.add_parser("init-db", help="Create or migrate the local SQLite schema")
+    subparsers.add_parser("verify-endpoints", help="Verify public Polymarket endpoints used by scanner")
     return parser
+
+
+def build_polymarket_client() -> PolymarketClient:
+    settings = get_settings()
+    return PolymarketClient(
+        gamma_base_url=str(settings.polymarket_gamma_base_url),
+        clob_base_url=str(settings.polymarket_clob_base_url),
+    )
 
 
 async def run_scan(limit: int, save: bool = True) -> None:
     settings = get_settings()
-    client = PolymarketClient(
-        gamma_base_url=str(settings.polymarket_gamma_base_url),
-        clob_base_url=str(settings.polymarket_clob_base_url),
-    )
+    client = build_polymarket_client()
     risk_engine = RiskEngine(
         max_market_risk_usdc=settings.max_market_risk_usdc,
         max_daily_loss_usdc=settings.max_daily_loss_usdc,
@@ -94,6 +101,21 @@ async def run_scan(limit: int, save: bool = True) -> None:
         console.print("\n[yellow]Risk motoru hicbir market icin paper trade izni vermedi.[/yellow]")
 
 
+async def run_verify_endpoints() -> None:
+    result = await verify_polymarket_public_endpoints(build_polymarket_client())
+    table = Table(title="SuperAjan12 Endpoint Verification")
+    table.add_column("Endpoint")
+    table.add_column("OK")
+    table.add_column("Detail")
+
+    for check in result.checks:
+        table.add_row(check.name, "yes" if check.ok else "no", check.detail)
+
+    console.print(table)
+    if not result.ok:
+        raise SystemExit(1)
+
+
 def init_db() -> None:
     settings = get_settings()
     SQLiteStore(settings.sqlite_path)
@@ -106,6 +128,8 @@ def main() -> None:
         asyncio.run(run_scan(limit=args.limit, save=not args.no_save))
     elif args.command == "init-db":
         init_db()
+    elif args.command == "verify-endpoints":
+        asyncio.run(run_verify_endpoints())
 
 
 if __name__ == "__main__":
