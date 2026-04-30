@@ -46,18 +46,19 @@
 - [x] Paper position defteri v1
 - [x] Canli veri ile emir gondermeden karar kaydi iskeleti
 - [x] Karar-sonuc performans mark-to-market iskeleti
-- [ ] Strateji skor sistemi
-- [ ] Model version tracking
+- [x] Strateji skor sistemi v1
+- [x] Model version tracking v1
 - [ ] Shadow outcomes CLI komutu
 
 ## Faz 5 - Kontrollu canli test
 
-- [ ] API key secret manager
+- [x] API key secret manager iskeleti
 - [ ] Live execution connector
+- [x] Live execution guard
 - [x] Kill-switch iskeleti
-- [ ] Reconciliation Agent
+- [x] Reconciliation Agent iskeleti
 - [ ] Kucuk sermaye limitleri
-- [ ] Manual approval gate
+- [x] Manual approval gate
 
 ## Degismez kurallar
 
@@ -70,6 +71,7 @@
 - Haber/kaynak guveni dusukse islem yok veya watch.
 - Sosyal hype tek basina edge degildir.
 - Cuzdan sinyali gercek veri baglanmadan edge uretmez.
+- Live mode bile secret + manual approval + safe-mode kontrolu gecmeden emir gonderemez.
 - Safe-mode aktifse yeni islem yok.
 - Canli sistem kendi kodunu degistirmez.
 - Model gercek edge uretmedikce sahte guvenle islem acmaz.
