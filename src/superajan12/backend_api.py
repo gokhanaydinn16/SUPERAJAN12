@@ -10,7 +10,6 @@ from fastapi import FastAPI, Query, WebSocket, WebSocketDisconnect
 
 from superajan12.approval import ManualApprovalGate
 from superajan12.agents.scanner import MarketScannerAgent
-from superajan12.audit import AuditLogger
 from superajan12.capital_limits import CapitalLimitEngine
 from superajan12.config import get_settings
 from superajan12.endpoint_check import verify_polymarket_public_endpoints
