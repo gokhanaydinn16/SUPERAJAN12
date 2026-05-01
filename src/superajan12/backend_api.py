@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 from time import monotonic
 from typing import Any
@@ -36,7 +37,6 @@ from superajan12.storage import SQLiteStore
 def create_backend_app() -> FastAPI:
     app = FastAPI(title="SuperAjan12 Backend", version="0.2.0")
     started_at_monotonic = monotonic()
-    ensure_runtime_paths()
 
     @app.get("/health")
     def health() -> dict[str, Any]:
@@ -121,12 +121,21 @@ def create_backend_app() -> FastAPI:
     async def markets(top: int = Query(default=20, ge=1, le=100)) -> dict[str, Any]:
         settings = ensure_runtime_paths()
         reporter = Reporter(settings.sqlite_path)
+        use_static_sources = os.getenv("PYTEST_CURRENT_TEST") or os.getenv("SUPERAJAN12_SOURCE_HEALTH_MODE") == "static"
+        if use_static_sources:
+            registry = build_default_health_registry()
+        else:
+            registry = await build_live_health_registry()
+        source_snapshot = registry.snapshot()
+        top_markets = reporter.top_scored_markets(limit=top)
+        latest_scan = _enrich_scan_summary(reporter.latest_summary())
         payload = {
-            "top_markets": reporter.top_scored_markets(limit=top),
-            "latest_scan": reporter.latest_summary(),
-            "source_health_mode": "static"
-            if os.getenv("PYTEST_CURRENT_TEST") or os.getenv("SUPERAJAN12_SOURCE_HEALTH_MODE") == "static"
-            else "live",
+            "top_markets": top_markets,
+            "latest_scan": latest_scan,
+            "source_health_mode": "static" if use_static_sources else "live",
+            "market_summary": _build_market_summary(top_markets, latest_scan),
+            "source_summary": _source_summary(source_snapshot),
+            "reference_sources": _reference_source_rows(source_snapshot),
         }
         event_bus.publish("markets.snapshot", payload)
         return payload
@@ -509,3 +518,146 @@ def _build_dry_run_preview(guard: Any) -> dict[str, Any] | None:
         "size": order.size,
         "dry_run": order.dry_run,
     }
+
+
+def _enrich_scan_summary(summary: dict[str, Any] | None) -> dict[str, Any] | None:
+    if summary is None:
+        return None
+    finished_at = _parse_timestamp(summary.get("finished_at"))
+    age_seconds = None
+    freshness = "unknown"
+    if finished_at is not None:
+        age_seconds = max(int((datetime.now(timezone.utc) - finished_at).total_seconds()), 0)
+        if age_seconds <= 300:
+            freshness = "fresh"
+        elif age_seconds <= 1800:
+            freshness = "warming"
+        else:
+            freshness = "stale"
+    return {
+        **summary,
+        "age_seconds": age_seconds,
+        "freshness": freshness,
+    }
+
+
+def _build_market_summary(top_markets: list[dict[str, Any]], latest_scan: dict[str, Any] | None) -> dict[str, Any]:
+    decisions = {"approve": 0, "watch": 0, "reject": 0}
+    score_total = 0.0
+    edge_total = 0.0
+    spread_total = 0.0
+    resolution_total = 0.0
+    volume_total = 0.0
+    liquidity_total = 0.0
+    bid_depth_total = 0.0
+    ask_depth_total = 0.0
+    score_count = 0
+    edge_count = 0
+    spread_count = 0
+    resolution_count = 0
+
+    for row in top_markets:
+        decision = str(row.get("decision") or "watch")
+        if decision in decisions:
+            decisions[decision] += 1
+        score = row.get("score")
+        if isinstance(score, (int, float)):
+            score_total += float(score)
+            score_count += 1
+        edge = row.get("edge")
+        if isinstance(edge, (int, float)):
+            edge_total += float(edge)
+            edge_count += 1
+        spread = row.get("spread_bps")
+        if isinstance(spread, (int, float)):
+            spread_total += float(spread)
+            spread_count += 1
+        resolution = row.get("resolution_confidence")
+        if isinstance(resolution, (int, float)):
+            resolution_total += float(resolution)
+            resolution_count += 1
+        volume = row.get("volume_usdc")
+        if isinstance(volume, (int, float)):
+            volume_total += float(volume)
+        liquidity = row.get("liquidity_usdc")
+        if isinstance(liquidity, (int, float)):
+            liquidity_total += float(liquidity)
+        bid_depth = row.get("bid_depth_usdc")
+        if isinstance(bid_depth, (int, float)):
+            bid_depth_total += float(bid_depth)
+        ask_depth = row.get("ask_depth_usdc")
+        if isinstance(ask_depth, (int, float)):
+            ask_depth_total += float(ask_depth)
+
+    return {
+        "visible_market_count": len(top_markets),
+        "approve_count": decisions["approve"],
+        "watch_count": decisions["watch"],
+        "reject_count": decisions["reject"],
+        "avg_score": None if score_count == 0 else round(score_total / score_count, 3),
+        "avg_edge": None if edge_count == 0 else round(edge_total / edge_count, 5),
+        "avg_spread_bps": None if spread_count == 0 else round(spread_total / spread_count, 2),
+        "avg_resolution_confidence": None if resolution_count == 0 else round(resolution_total / resolution_count, 3),
+        "total_volume_usdc": round(volume_total, 2),
+        "total_liquidity_usdc": round(liquidity_total, 2),
+        "total_bid_depth_usdc": round(bid_depth_total, 2),
+        "total_ask_depth_usdc": round(ask_depth_total, 2),
+        "latest_scan_age_seconds": None if latest_scan is None else latest_scan.get("age_seconds"),
+        "latest_scan_freshness": None if latest_scan is None else latest_scan.get("freshness"),
+    }
+
+
+def _source_summary(source_snapshot: list[dict[str, Any]]) -> dict[str, int]:
+    return {
+        "total": len(source_snapshot),
+        "live": sum(1 for source in source_snapshot if source.get("status") == "live"),
+        "degraded": sum(1 for source in source_snapshot if source.get("status") in {"stale", "offline", "error"}),
+        "not_configured": sum(1 for source in source_snapshot if source.get("status") == "not_configured"),
+    }
+
+
+def _reference_source_rows(source_snapshot: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    by_name = {str(source.get("name")): source for source in source_snapshot}
+    rows: list[dict[str, Any]] = []
+    for name, label in (
+        ("polymarket_gamma", "Polymarket Gamma"),
+        ("polymarket_clob", "Polymarket CLOB"),
+        ("kalshi", "Kalshi"),
+        ("binance_futures", "Binance Futures"),
+        ("okx", "OKX"),
+        ("coinbase", "Coinbase"),
+    ):
+        source = dict(by_name.get(name) or {"name": name, "status": "missing", "metadata": {}})
+        metadata = source.get("metadata") if isinstance(source.get("metadata"), dict) else {}
+        rows.append(
+            {
+                "name": name,
+                "label": label,
+                "status": source.get("status") or "missing",
+                "latency_ms": source.get("latency_ms"),
+                "detail": _source_detail(metadata),
+                "last_ok_at": source.get("last_ok_at"),
+                "error": source.get("error"),
+            }
+        )
+    return rows
+
+
+def _source_detail(metadata: dict[str, Any]) -> str | None:
+    for key in ("symbol", "market_id", "mark_price", "last_price", "price", "midpoint", "market_count"):
+        value = metadata.get(key)
+        if value is not None:
+            return f"{key}={value}"
+    return None
+
+
+def _parse_timestamp(value: Any) -> datetime | None:
+    if not value or not isinstance(value, str):
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
