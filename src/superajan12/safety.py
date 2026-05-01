@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
 
 
 @dataclass(frozen=True)
@@ -46,3 +47,8 @@ class SafetyController:
             kill_switch=self._kill_switch,
             reasons=tuple(self._reasons),
         )
+
+
+@lru_cache(maxsize=1)
+def get_safety_controller() -> SafetyController:
+    return SafetyController()
