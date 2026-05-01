@@ -84,3 +84,16 @@ def test_sqlite_store_saves_scan(tmp_path) -> None:
     assert position_count == 1
     assert summary == 1
     assert quality == (0.9, 0.1, 0.8)
+
+
+def test_save_model_version_updates_existing_row_without_replacing_identity(tmp_path) -> None:
+    store = SQLiteStore(tmp_path / "superajan12.sqlite3")
+
+    first_id = store.save_model_version("probability", "1.0.0", "candidate", notes="first")
+    second_id = store.save_model_version("probability", "1.0.0", "approved", notes="updated")
+
+    assert first_id == second_id
+    rows = store.list_model_versions(limit=5)
+    assert len(rows) == 1
+    assert rows[0]["status"] == "approved"
+    assert rows[0]["notes"] == "updated"
