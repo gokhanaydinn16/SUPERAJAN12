@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Activity, AlertTriangle, Brain, Database, Gauge, LineChart, Radar, Shield, WalletCards, Zap } from "lucide-react";
-import { DashboardPayload, SourceHealth, getDashboard, getSources, runScan, verifyEndpoints } from "./api";
+import { BackendEvent, DashboardPayload, SourceHealth, connectEventStream, getDashboard, getEvents, getSources, runScan, verifyEndpoints } from "./api";
 
 type LogItem = { time: string; message: string };
 
@@ -36,20 +36,31 @@ function decisionClass(decision: unknown) {
   return "warn";
 }
 
+function eventToLog(event: BackendEvent) {
+  return `${event.type} ${JSON.stringify(event.payload)}`;
+}
+
 export default function App() {
   const [dashboard, setDashboard] = useState<DashboardPayload | null>(null);
   const [sources, setSources] = useState<SourceHealth[]>([]);
   const [limit, setLimit] = useState(25);
   const [busy, setBusy] = useState(false);
+  const [eventState, setEventState] = useState("connecting");
   const [logs, setLogs] = useState<LogItem[]>([{ time: new Date().toLocaleTimeString(), message: "Desktop Command Center ready" }]);
 
-  const addLog = (message: string) => setLogs((items) => [{ time: new Date().toLocaleTimeString(), message }, ...items].slice(0, 80));
+  const addLog = (message: string) => setLogs((items) => [{ time: new Date().toLocaleTimeString(), message }, ...items].slice(0, 120));
 
   async function refresh() {
     try {
-      const [dash, sourcePayload] = await Promise.all([getDashboard(), getSources()]);
+      const [dash, sourcePayload, events] = await Promise.all([getDashboard(), getSources(), getEvents(20)]);
       setDashboard(dash);
       setSources(sourcePayload.sources);
+      if (events.events.length > 0) {
+        setLogs((items) => [
+          ...events.events.slice(-8).reverse().map((event) => ({ time: new Date(event.created_at).toLocaleTimeString(), message: eventToLog(event) })),
+          ...items,
+        ].slice(0, 120));
+      }
     } catch (error) {
       addLog(`Backend unavailable: ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -85,8 +96,21 @@ export default function App() {
 
   useEffect(() => {
     refresh();
-    const id = window.setInterval(refresh, 8000);
-    return () => window.clearInterval(id);
+    const socket = connectEventStream(
+      (event) => {
+        setEventState("live");
+        addLog(eventToLog(event));
+      },
+      (message) => {
+        setEventState("offline");
+        addLog(message);
+      },
+    );
+    const id = window.setInterval(refresh, 15000);
+    return () => {
+      socket.close();
+      window.clearInterval(id);
+    };
   }, []);
 
   const aggregate = dashboard?.aggregate || {};
@@ -124,6 +148,7 @@ export default function App() {
             <span className="pill warn">Live Orders Disabled</span>
             <span className="pill good">Mode {dashboard?.mode || "paper"}</span>
             <span className="pill muted-pill">Sources {onlineSources}/{sources.length || 9}</span>
+            <span className={`pill ${eventState === "live" ? "good" : eventState === "connecting" ? "warn" : "bad"}`}>Events {eventState}</span>
           </div>
         </header>
 
@@ -196,7 +221,7 @@ export default function App() {
             <div className="empty-box">Dune / Nansen / Glassnode adapters require real API access. Wallet feed remains empty until configured.</div>
           </div>
           <div className="panel large">
-            <div className="panel-head"><h2>Audit / Agent Activity</h2><span className="pill good">live UI loop</span></div>
+            <div className="panel-head"><h2>Audit / Agent Activity</h2><span className="pill good">live event stream</span></div>
             <div className="log-feed">
               {logs.map((log, index) => <div key={`${log.time}-${index}`}><b>{log.time}</b> {log.message}</div>)}
             </div>
