@@ -74,8 +74,12 @@ class Reporter:
                 if latest_scan_only:
                     rows = conn.execute(
                         """
-                        SELECT market_id, question, decision, score, implied_probability,
-                               model_probability, edge, resolution_confidence, spread_bps
+                        SELECT market_id, question, decision, score, volume_usdc, liquidity_usdc,
+                               spread_bps, best_bid, best_ask, bid_depth_usdc, ask_depth_usdc,
+                               orderbook_source, implied_probability, model_probability, edge,
+                               resolution_confidence, liquidity_confidence, manipulation_risk_score,
+                               news_confidence, social_confidence, smart_wallet_confidence,
+                               reference_confidence, suggested_paper_risk_usdc
                         FROM market_scores
                         WHERE scan_id = (
                             SELECT id
@@ -91,8 +95,12 @@ class Reporter:
                 else:
                     rows = conn.execute(
                         """
-                        SELECT market_id, question, decision, score, implied_probability,
-                               model_probability, edge, resolution_confidence, spread_bps
+                        SELECT market_id, question, decision, score, volume_usdc, liquidity_usdc,
+                               spread_bps, best_bid, best_ask, bid_depth_usdc, ask_depth_usdc,
+                               orderbook_source, implied_probability, model_probability, edge,
+                               resolution_confidence, liquidity_confidence, manipulation_risk_score,
+                               news_confidence, social_confidence, smart_wallet_confidence,
+                               reference_confidence, suggested_paper_risk_usdc
                         FROM market_scores
                         ORDER BY score DESC
                         LIMIT ?
