@@ -44,6 +44,9 @@ export type MarketsPayload = {
   top_markets: Array<Record<string, unknown>>;
   latest_scan: Record<string, unknown> | null;
   source_health_mode: string;
+  market_summary: Record<string, unknown>;
+  source_summary: Record<string, number>;
+  reference_sources: Array<Record<string, unknown>>;
 };
 
 export type WalletEventsPayload = {
