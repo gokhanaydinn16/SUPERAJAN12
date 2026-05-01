@@ -6,13 +6,17 @@ import uvicorn
 from fastapi import FastAPI, Query
 from fastapi.responses import HTMLResponse
 
-from superajan12.agents.risk import RiskEngine
 from superajan12.agents.scanner import MarketScannerAgent
-from superajan12.audit import AuditLogger
 from superajan12.config import get_settings
-from superajan12.connectors.polymarket import PolymarketClient
 from superajan12.endpoint_check import verify_polymarket_public_endpoints
 from superajan12.reporting import Reporter
+from superajan12.runtime import (
+    build_polymarket_client,
+    build_risk_engine,
+    build_scan_response,
+    ensure_runtime_paths,
+    persist_scan_result,
+)
 from superajan12.storage import SQLiteStore
 
 app = FastAPI(title="SuperAjan12", version="0.1.0")
@@ -212,25 +216,6 @@ INDEX_HTML = """
 """
 
 
-def build_polymarket_client() -> PolymarketClient:
-    settings = get_settings()
-    return PolymarketClient(
-        gamma_base_url=str(settings.polymarket_gamma_base_url),
-        clob_base_url=str(settings.polymarket_clob_base_url),
-    )
-
-
-def build_risk_engine() -> RiskEngine:
-    settings = get_settings()
-    return RiskEngine(
-        max_market_risk_usdc=settings.max_market_risk_usdc,
-        max_daily_loss_usdc=settings.max_daily_loss_usdc,
-        min_volume_usdc=settings.min_volume_usdc,
-        max_spread_bps=settings.max_spread_bps,
-        min_liquidity_usdc=settings.min_liquidity_usdc,
-    )
-
-
 @app.get("/", response_class=HTMLResponse)
 def index() -> str:
     return INDEX_HTML
@@ -238,7 +223,7 @@ def index() -> str:
 
 @app.get("/api/dashboard")
 def dashboard(top: int = Query(default=20, ge=1, le=100)) -> dict[str, Any]:
-    settings = get_settings()
+    settings = ensure_runtime_paths()
     store = SQLiteStore(settings.sqlite_path)
     reporter = Reporter(settings.sqlite_path)
     return {
@@ -253,22 +238,14 @@ def dashboard(top: int = Query(default=20, ge=1, le=100)) -> dict[str, Any]:
 
 @app.post("/api/scan")
 async def scan(limit: int = Query(default=25, ge=1, le=100)) -> dict[str, Any]:
-    settings = get_settings()
+    settings = ensure_runtime_paths()
     scanner = MarketScannerAgent(
-        polymarket=build_polymarket_client(),
-        risk_engine=build_risk_engine(),
+        polymarket=build_polymarket_client(settings),
+        risk_engine=build_risk_engine(settings),
     )
     result = await scanner.scan(limit=limit)
-    store = SQLiteStore(settings.sqlite_path)
-    scan_id = store.save_scan(result)
-    audit = AuditLogger(settings.audit_log_path)
-    audit.record("web.scan.completed", {"scan_id": scan_id, **result.model_dump(mode="json")})
-    return {
-        "scan_id": scan_id,
-        "score_count": len(result.scores),
-        "idea_count": len(result.ideas),
-        "paper_position_count": len(result.paper_positions),
-    }
+    scan_id = persist_scan_result(result, summary_event_type="web.scan.completed", settings=settings)
+    return build_scan_response(result, scan_id)
 
 
 @app.post("/api/verify-endpoints")
@@ -278,6 +255,7 @@ async def verify_endpoints() -> dict[str, Any]:
 
 
 def main() -> None:
+    ensure_runtime_paths(get_settings())
     uvicorn.run("superajan12.web:app", host="127.0.0.1", port=8000, reload=False)
 
 
