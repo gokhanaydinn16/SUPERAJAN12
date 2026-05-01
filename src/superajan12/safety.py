@@ -25,27 +25,43 @@ class SafetyController:
     def __init__(self) -> None:
         self._safe_mode = False
         self._kill_switch = False
-        self._reasons: list[str] = []
+        self._safe_mode_reason: str | None = None
+        self._kill_switch_reason: str | None = None
 
     def enable_safe_mode(self, reason: str) -> None:
         self._safe_mode = True
-        self._reasons.append(reason)
+        self._safe_mode_reason = reason
 
     def enable_kill_switch(self, reason: str) -> None:
         self._kill_switch = True
-        self._safe_mode = True
-        self._reasons.append(reason)
+        self._kill_switch_reason = reason
+        if not self._safe_mode:
+            self._safe_mode = True
+            self._safe_mode_reason = "kill-switch enabled"
 
     def clear_safe_mode(self) -> None:
-        if not self._kill_switch:
+        self._safe_mode = False
+        self._kill_switch = False
+        self._safe_mode_reason = None
+        self._kill_switch_reason = None
+
+    def disable_kill_switch(self) -> None:
+        self._kill_switch = False
+        self._kill_switch_reason = None
+        if self._safe_mode and self._safe_mode_reason == "kill-switch enabled":
             self._safe_mode = False
-            self._reasons.clear()
+            self._safe_mode_reason = None
 
     def state(self) -> SafetyState:
+        reasons = tuple(
+            reason
+            for reason in (self._safe_mode_reason, self._kill_switch_reason)
+            if reason
+        )
         return SafetyState(
             safe_mode=self._safe_mode,
             kill_switch=self._kill_switch,
-            reasons=tuple(self._reasons),
+            reasons=reasons,
         )
 
 
