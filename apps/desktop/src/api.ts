@@ -67,6 +67,8 @@ export type RiskStatusPayload = {
   capital: Record<string, unknown>;
   execution: Record<string, unknown>;
   aggregate: Record<string, unknown>;
+  risk_signals: Record<string, Record<string, unknown>>;
+  source_health_gate: Record<string, unknown>;
 };
 
 export type PositionsPayload = {
