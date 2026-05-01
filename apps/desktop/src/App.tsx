@@ -95,20 +95,33 @@ export default function App() {
   }
 
   useEffect(() => {
-    refresh();
-    const socket = connectEventStream(
+    let active = true;
+    let socket: { close: () => void } | null = null;
+
+    void refresh();
+    void connectEventStream(
       (event) => {
+        if (!active) return;
         setEventState("live");
         addLog(eventToLog(event));
       },
       (message) => {
+        if (!active) return;
         setEventState("offline");
         addLog(message);
       },
-    );
+    ).then((resolvedSocket) => {
+      if (!active) {
+        resolvedSocket.close();
+        return;
+      }
+      socket = resolvedSocket;
+    });
+
     const id = window.setInterval(refresh, 15000);
     return () => {
-      socket.close();
+      active = false;
+      socket?.close();
       window.clearInterval(id);
     };
   }, []);
