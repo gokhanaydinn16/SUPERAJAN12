@@ -2,7 +2,7 @@
 
 ## Summary
 
-SuperAjan12 is currently a safe paper/shadow trading core for Polymarket-centered prediction market research. It does not send live orders. The system has market scanning, risk checks, quality agents, paper positions, shadow mark-to-market, strategy scoring, model version tracking, and live-execution safety gates.
+SuperAjan12 is currently a safe paper/shadow trading core for Polymarket-centered prediction market research plus a desktop command-center surface. It does not send live orders. The system has market scanning, risk checks, quality agents, paper positions, shadow mark-to-market, strategy scoring, model version tracking, live-execution safety gates, and a local backend API that can be consumed by the desktop shell.
 
 ## What is complete
 
@@ -31,6 +31,9 @@ SuperAjan12 is currently a safe paper/shadow trading core for Polymarket-centere
 - Capital limits.
 - Execution guard.
 - Dry-run live connector only.
+- Desktop command center navigation shell.
+- Desktop sidecar backend startup with health-check validation and fallback to external backend mode.
+- Local backend endpoints for execution status, system health and event history.
 - CLI commands for scan, report, endpoint verification, reference checks, shadow, strategy, model, reconciliation, capital and execution checks.
 - CI workflow and tests.
 
