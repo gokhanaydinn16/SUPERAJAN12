@@ -1,3 +1,5 @@
+import { invoke } from "@tauri-apps/api/core";
+
 export type SourceHealth = {
   name: string;
   status: string;
@@ -25,11 +27,129 @@ export type BackendEvent = {
   payload: Record<string, unknown>;
 };
 
-const API_BASE = "http://127.0.0.1:8000";
-const WS_BASE = "ws://127.0.0.1:8000";
+export type DesktopBackendStatus = {
+  running: boolean;
+  url: string;
+  ws_url: string;
+  mode: string;
+  message: string | null;
+};
+
+export type ResearchTasksPayload = {
+  tasks: Array<Record<string, unknown>>;
+  providers: Array<Record<string, unknown>>;
+};
+
+export type MarketsPayload = {
+  top_markets: Array<Record<string, unknown>>;
+  latest_scan: Record<string, unknown> | null;
+  source_health_mode: string;
+};
+
+export type WalletEventsPayload = {
+  events: Array<Record<string, unknown>>;
+  providers: Array<Record<string, unknown>>;
+  status: string;
+};
+
+export type StrategyScoresPayload = {
+  scores: Array<Record<string, unknown>>;
+  models: Array<Record<string, unknown>>;
+  live_eligible_models: Array<Record<string, unknown>>;
+};
+
+export type RiskStatusPayload = {
+  mode: string;
+  safety: Record<string, unknown>;
+  capital: Record<string, unknown>;
+  execution: Record<string, unknown>;
+  aggregate: Record<string, unknown>;
+};
+
+export type PositionsPayload = {
+  positions: Array<Record<string, unknown>>;
+  shadow: Record<string, unknown>;
+};
+
+export type AuditEventsPayload = {
+  events: Array<Record<string, unknown>>;
+};
+
+export type ExecutionStatusPayload = {
+  mode: string;
+  live_trading: string;
+  approval: Record<string, unknown>;
+  secrets: {
+    ready: boolean;
+    required: Array<Record<string, unknown>>;
+  };
+  reconciliation: Record<string, unknown>;
+  guard: Record<string, unknown>;
+  dry_run_order_supported: boolean;
+  dry_run_preview: Record<string, unknown> | null;
+};
+
+export type SystemHealthPayload = {
+  ok: boolean;
+  uptime_seconds: number;
+  mode: string;
+  backend: Record<string, unknown>;
+  database: Record<string, unknown>;
+  audit_log: Record<string, unknown>;
+  sources: Record<string, unknown>;
+};
+
+const FALLBACK_STATUS: DesktopBackendStatus = {
+  running: false,
+  url: "http://127.0.0.1:8000",
+  ws_url: "ws://127.0.0.1:8000",
+  mode: "external",
+  message: "desktop sidecar unavailable; using default local backend",
+};
+
+let backendStatusPromise: Promise<DesktopBackendStatus> | null = null;
+
+function isTauriRuntime() {
+  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+}
+
+async function resolveBackendStatus() {
+  if (!isTauriRuntime()) return FALLBACK_STATUS;
+  try {
+    return await invoke<DesktopBackendStatus>("desktop_backend_status");
+  } catch (error) {
+    return {
+      ...FALLBACK_STATUS,
+      message: `desktop sidecar status unavailable: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+}
+
+async function getBackendStatus() {
+  backendStatusPromise ??= resolveBackendStatus();
+  return backendStatusPromise;
+}
+
+async function refreshBackendStatus() {
+  backendStatusPromise = resolveBackendStatus();
+  return backendStatusPromise;
+}
+
+export async function getDesktopBackendStatus() {
+  return getBackendStatus();
+}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE}${path}`, init);
+  let backend = await getBackendStatus();
+  let response: Response;
+
+  try {
+    response = await fetch(`${backend.url}${path}`, init);
+  } catch (error) {
+    backend = await refreshBackendStatus();
+    response = await fetch(`${backend.url}${path}`, init);
+  }
+
   if (!response.ok) {
     const text = await response.text();
     throw new Error(`${response.status} ${response.statusText}: ${text}`);
@@ -53,8 +173,45 @@ export function getEvents(limit = 100) {
   return request<{ events: BackendEvent[] }>(`/events?limit=${encodeURIComponent(limit)}`);
 }
 
-export function connectEventStream(onEvent: (event: BackendEvent) => void, onError: (message: string) => void) {
-  const socket = new WebSocket(`${WS_BASE}/events/stream`);
+export function getResearchTasks() {
+  return request<ResearchTasksPayload>("/research/tasks");
+}
+
+export function getMarkets() {
+  return request<MarketsPayload>("/markets");
+}
+
+export function getWalletEvents() {
+  return request<WalletEventsPayload>("/wallet/events");
+}
+
+export function getStrategyScores() {
+  return request<StrategyScoresPayload>("/strategy/scores");
+}
+
+export function getRiskStatus() {
+  return request<RiskStatusPayload>("/risk/status");
+}
+
+export function getPositions() {
+  return request<PositionsPayload>("/positions");
+}
+
+export function getExecutionStatus() {
+  return request<ExecutionStatusPayload>("/execution/status");
+}
+
+export function getSystemHealth() {
+  return request<SystemHealthPayload>("/system/health");
+}
+
+export function getAuditEvents(limit = 100) {
+  return request<AuditEventsPayload>(`/audit/events?limit=${encodeURIComponent(limit)}`);
+}
+
+export async function connectEventStream(onEvent: (event: BackendEvent) => void, onError: (message: string) => void) {
+  const backend = await getBackendStatus();
+  const socket = new WebSocket(`${backend.ws_url}/events/stream`);
   socket.onmessage = (message) => {
     try {
       onEvent(JSON.parse(message.data) as BackendEvent);
@@ -73,4 +230,16 @@ export function runScan(limit: number) {
 
 export function verifyEndpoints() {
   return request<Record<string, unknown>>("/verify-endpoints", { method: "POST" });
+}
+
+export function enableSafeMode(reason: string) {
+  return request<Record<string, unknown>>(`/safety/enable-safe-mode?reason=${encodeURIComponent(reason)}`, { method: "POST" });
+}
+
+export function enableKillSwitch(reason: string) {
+  return request<Record<string, unknown>>(`/safety/enable-kill-switch?reason=${encodeURIComponent(reason)}`, { method: "POST" });
+}
+
+export function clearSafety() {
+  return request<Record<string, unknown>>("/safety/clear", { method: "POST" });
 }
