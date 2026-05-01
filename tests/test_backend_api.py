@@ -31,6 +31,9 @@ def test_backend_sources_use_explicit_statuses() -> None:
         "offline",
         "error",
     }
+    for source in payload["sources"]:
+        assert "failure_count" in source
+        assert "circuit_breaker" in source
 
 
 def test_backend_command_center_endpoints_have_expected_shapes() -> None:
@@ -88,6 +91,8 @@ def test_backend_command_center_endpoints_have_expected_shapes() -> None:
     assert "backend" in system_payload
     assert "database" in system_payload
     assert "sources" in system_payload
+    assert "open_circuit_breakers" in system_payload["sources"]
+    assert "degraded_sources" in system_payload["sources"]
 
     assert positions.status_code == 200
     assert "positions" in positions.json()
