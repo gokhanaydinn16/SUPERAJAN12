@@ -238,14 +238,21 @@ def create_backend_app() -> FastAPI:
         return payload
 
     @app.get("/risk/status")
-    def risk_status() -> dict[str, Any]:
+    async def risk_status() -> dict[str, Any]:
         settings = ensure_runtime_paths()
         store = SQLiteStore(settings.sqlite_path)
+        reporter = Reporter(settings.sqlite_path)
         open_positions = store.list_open_positions()
         open_risk = sum(float(position.get("risk_usdc") or 0.0) for position in open_positions)
         shadow = store.shadow_summary()
-        aggregate = Reporter(settings.sqlite_path).aggregate_summary()
+        aggregate = reporter.aggregate_summary()
         safety = get_safety_controller().state()
+        if os.getenv("PYTEST_CURRENT_TEST") or os.getenv("SUPERAJAN12_SOURCE_HEALTH_MODE") == "static":
+            source_registry = build_default_health_registry()
+        else:
+            source_registry = await build_live_health_registry()
+        source_snapshot = source_registry.snapshot()
+        source_summary = _source_summary(source_snapshot)
         capital = CapitalLimitEngine(
             max_single_trade_usdc=settings.max_market_risk_usdc,
             max_total_open_risk_usdc=max(settings.max_market_risk_usdc * 5, settings.max_market_risk_usdc),
@@ -256,6 +263,12 @@ def create_backend_app() -> FastAPI:
             current_daily_pnl_usdc=float(shadow.get("total_unrealized_pnl_usdc") or 0.0),
         )
         execution = ExecutionGuard().can_execute(mode=settings.mode, safety_state=safety, secrets_ready=False)
+        risk_signals = _build_risk_signals(
+            open_positions=open_positions,
+            source_summary=source_summary,
+            current_daily_pnl_usdc=float(shadow.get("total_unrealized_pnl_usdc") or 0.0),
+            max_daily_loss_usdc=settings.max_daily_loss_usdc,
+        )
         payload = {
             "mode": settings.mode,
             "safety": {
@@ -276,6 +289,12 @@ def create_backend_app() -> FastAPI:
                 "reasons": list(execution.reasons),
             },
             "aggregate": aggregate,
+            "risk_signals": risk_signals,
+            "source_health_gate": {
+                "allowed": source_summary["degraded"] == 0,
+                "degraded_source_count": source_summary["degraded"],
+                "open_circuit_breakers": sum(1 for source in source_snapshot if source.get("circuit_breaker") == "open"),
+            },
         }
         event_bus.publish("risk.snapshot", payload)
         return payload
@@ -662,6 +681,56 @@ def _degraded_source_rows(source_snapshot: list[dict[str, Any]]) -> list[dict[st
             }
         )
     return rows
+
+
+def _build_risk_signals(
+    *,
+    open_positions: list[dict[str, Any]],
+    source_summary: dict[str, int],
+    current_daily_pnl_usdc: float,
+    max_daily_loss_usdc: float,
+) -> dict[str, dict[str, Any]]:
+    funding_status = "degraded"
+    correlation_status = "degraded"
+    liquidation_status = "clear" if not open_positions else "monitor"
+    funding_reasons = ["funding feed not wired yet"]
+    correlation_reasons = ["cross-position correlation model not wired yet"]
+    liquidation_reasons = ["no leveraged live positions"] if not open_positions else ["paper/shadow positions need liquidation-distance model"]
+
+    if source_summary.get("degraded", 0) > 0:
+        funding_reasons.append("reference venue health is degraded")
+        correlation_reasons.append("source degradation reduces portfolio confidence")
+
+    utilization = 0.0
+    if max_daily_loss_usdc > 0:
+        utilization = min(abs(current_daily_pnl_usdc) / max_daily_loss_usdc, 1.0)
+
+    return {
+        "funding": {
+            "status": funding_status,
+            "value": None,
+            "confidence": 0.0,
+            "reasons": funding_reasons,
+        },
+        "correlation": {
+            "status": correlation_status,
+            "value": None,
+            "confidence": 0.0,
+            "reasons": correlation_reasons,
+        },
+        "liquidation_distance": {
+            "status": liquidation_status,
+            "value": None,
+            "confidence": 0.0 if not open_positions else 0.2,
+            "reasons": liquidation_reasons,
+        },
+        "daily_loss_buffer": {
+            "status": "clear" if utilization < 0.5 else "monitor" if utilization < 0.8 else "tight",
+            "value": round(max(max_daily_loss_usdc - abs(current_daily_pnl_usdc), 0.0), 2),
+            "confidence": 1.0,
+            "reasons": [f"daily loss utilization={utilization:.2f}"],
+        },
+    }
 
 
 def _source_detail(metadata: dict[str, Any]) -> str | None:
