@@ -281,14 +281,23 @@ class SQLiteStore:
 
     def save_model_version(self, name: str, version: str, status: str, notes: str | None = None) -> int:
         with self.connect() as conn:
-            cursor = conn.execute(
+            conn.execute(
                 """
-                INSERT OR REPLACE INTO model_versions (name, version, status, notes)
+                INSERT INTO model_versions (name, version, status, notes)
                 VALUES (?, ?, ?, ?)
+                ON CONFLICT(name, version) DO UPDATE SET
+                    status = excluded.status,
+                    notes = excluded.notes
                 """,
                 (name, version, status, notes),
             )
-            return int(cursor.lastrowid)
+            row = conn.execute(
+                "SELECT id FROM model_versions WHERE name = ? AND version = ?",
+                (name, version),
+            ).fetchone()
+            if row is None:
+                raise RuntimeError("model version save failed")
+            return int(row[0])
 
     def list_model_versions(self, limit: int = 20) -> list[dict[str, object]]:
         with self.connect() as conn:
