@@ -305,7 +305,7 @@ export default function App() {
               {Object.entries(riskSignals).map(([name, signal]) => (
                 <div className="source-row" key={name}>
                   <div className="source-body">
-                    <strong>{name.replaceAll("_", " ")}</strong>
+                    <strong>{name.replace(/_/g, " ")}</strong>
                     <div className="source-sub">{Array.isArray(signal.reasons) ? signal.reasons.join(" | ") : fmt(signal.reasons, 0)}</div>
                   </div>
                   <div className="source-meta vertical-meta">
