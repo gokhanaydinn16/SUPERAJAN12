@@ -95,3 +95,54 @@ Desteklenen yanit alani:
 ## Guvenlik notu
 
 Bu endpointler sadece public market data icin kullanilir. Faz 1'de emir imzalama, API key kullanimi veya live trading yoktur.
+
+## Local backend API
+
+Desktop command center ve local web/runtime katmani su endpointleri kullanir:
+
+```text
+GET  /health
+GET  /sources
+GET  /events
+GET  /dashboard
+GET  /research/tasks
+GET  /markets
+GET  /market-state/validate?market_id=<id>&token_id=<id>
+GET  /wallet/events
+GET  /strategy/scores
+GET  /risk/status
+GET  /execution/status
+GET  /system/health
+GET  /positions
+GET  /audit/events
+POST /scan
+POST /verify-endpoints
+POST /safety/enable-safe-mode
+POST /safety/enable-kill-switch
+POST /safety/clear
+WS   /events/stream
+```
+
+### `GET /execution/status`
+
+Bu endpoint canli emir gondermez. Yalnizca su bariyerleri gorunur hale getirir:
+
+- manual approval durumu
+- gerekli secret varligi
+- reconciliation sonucu
+- execution guard karari
+- dry-run order preview uygunlugu
+
+### `GET /system/health`
+
+Bu endpoint runtime seviyesinde su bilgileri dondurur:
+
+- backend uptime
+- event history sayisi
+- sqlite dosya durumu
+- audit log durumu
+- source health ozeti
+
+### `WS /events/stream`
+
+Desktop command center canli his icin backend event stream dinler. Kaynak health, scan tamamlama, audit snapshot ve benzeri backend olaylari bu kanal uzerinden akar.
