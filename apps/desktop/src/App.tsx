@@ -4,11 +4,13 @@ import {
   BackendEvent,
   DashboardPayload,
   MarketsPayload,
+  RiskStatusPayload,
   SourceHealth,
   connectEventStream,
   getDashboard,
   getEvents,
   getMarkets,
+  getRiskStatus,
   getSources,
   runScan,
   verifyEndpoints,
@@ -35,9 +37,9 @@ function fmt(value: unknown, digits = 2) {
 }
 
 function statusClass(status: string) {
-  if (status === "live") return "good";
-  if (status === "stale" || status === "loading") return "warn";
-  if (status === "offline" || status === "error") return "bad";
+  if (status === "live" || status === "clear") return "good";
+  if (status === "stale" || status === "loading" || status === "monitor" || status === "tight") return "warn";
+  if (status === "offline" || status === "error" || status === "degraded" || status === "blocked") return "bad";
   return "muted-pill";
 }
 
@@ -63,6 +65,7 @@ function eventToLog(event: BackendEvent) {
 export default function App() {
   const [dashboard, setDashboard] = useState<DashboardPayload | null>(null);
   const [markets, setMarkets] = useState<MarketsPayload | null>(null);
+  const [risk, setRisk] = useState<RiskStatusPayload | null>(null);
   const [sources, setSources] = useState<SourceHealth[]>([]);
   const [limit, setLimit] = useState(25);
   const [busy, setBusy] = useState(false);
@@ -73,9 +76,16 @@ export default function App() {
 
   async function refresh() {
     try {
-      const [dash, marketsPayload, sourcePayload, events] = await Promise.all([getDashboard(), getMarkets(), getSources(), getEvents(20)]);
+      const [dash, marketsPayload, riskPayload, sourcePayload, events] = await Promise.all([
+        getDashboard(),
+        getMarkets(),
+        getRiskStatus(),
+        getSources(),
+        getEvents(20),
+      ]);
       setDashboard(dash);
       setMarkets(marketsPayload);
+      setRisk(riskPayload);
       setSources(sourcePayload.sources);
       if (events.events.length > 0) {
         setLogs((items) => [
@@ -154,6 +164,8 @@ export default function App() {
   const marketSummary = markets?.market_summary || {};
   const referenceSources = markets?.reference_sources || [];
   const latestScan = markets?.latest_scan || null;
+  const riskSignals = risk?.risk_signals || {};
+  const sourceHealthGate = risk?.source_health_gate || {};
   const onlineSources = useMemo(() => sources.filter((source) => source.status === "live").length, [sources]);
 
   return (
@@ -213,7 +225,7 @@ export default function App() {
           </div>
         </section>
 
-        <section className="content-grid">
+        <section className="content-grid risk-grid">
           <div className="panel large">
             <div className="panel-head">
               <div>
@@ -284,6 +296,40 @@ export default function App() {
           </div>
 
           <div className="panel">
+            <div className="panel-head"><h2>Risk Center</h2><Shield size={18} /></div>
+            <div className="summary-strip summary-strip-two">
+              <SummaryCard title="Open Risk" value={fmt(risk?.capital?.current_open_risk_usdc, 1)} sub="current exposure" />
+              <SummaryCard title="Risk Cap" value={fmt(risk?.capital?.max_allowed_risk_usdc, 1)} sub="remaining room" />
+            </div>
+            <div className="source-list source-stack compact-gap">
+              {Object.entries(riskSignals).map(([name, signal]) => (
+                <div className="source-row" key={name}>
+                  <div className="source-body">
+                    <strong>{name.replaceAll("_", " ")}</strong>
+                    <div className="source-sub">{Array.isArray(signal.reasons) ? signal.reasons.join(" | ") : fmt(signal.reasons, 0)}</div>
+                  </div>
+                  <div className="source-meta vertical-meta">
+                    <span className={`pill ${statusClass(String(signal.status || "unknown"))}`}>{fmt(signal.status, 0)}</span>
+                    <span className="source-latency">confidence {fmt(signal.confidence, 2)}</span>
+                    {signal.value !== null && signal.value !== undefined ? <span className="source-latency">value {fmt(signal.value, 2)}</span> : null}
+                  </div>
+                </div>
+              ))}
+              <div className="source-row">
+                <div className="source-body">
+                  <strong>source health gate</strong>
+                  <div className="source-sub">degraded {fmt(sourceHealthGate.degraded_source_count, 0)} | breakers {fmt(sourceHealthGate.open_circuit_breakers, 0)}</div>
+                </div>
+                <div className="source-meta vertical-meta">
+                  <span className={`pill ${Boolean(sourceHealthGate.allowed) ? "good" : "bad"}`}>{Boolean(sourceHealthGate.allowed) ? "clear" : "blocked"}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="content-grid bottom">
+          <div className="panel">
             <div className="panel-head"><h2>Reference Venues</h2><AlertTriangle size={18} /></div>
             <div className="source-list source-stack">
               {referenceSources.map((source) => (
@@ -301,9 +347,6 @@ export default function App() {
               ))}
             </div>
           </div>
-        </section>
-
-        <section className="content-grid bottom">
           <div className="panel">
             <div className="panel-head"><h2>Research Center</h2><span className="pill muted-pill">no fake data</span></div>
             <div className="empty-box">Research sources are shown as not configured until real providers are connected. No demo headlines are displayed.</div>
