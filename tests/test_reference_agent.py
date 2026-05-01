@@ -1,4 +1,4 @@
-import pytest
+import asyncio
 
 from superajan12.agents.reference import CryptoReferenceAgent
 
@@ -23,8 +23,7 @@ class BadCoinbase:
         return {"source": "coinbase", "symbol": product_id, "last_price": 120.0}
 
 
-@pytest.mark.asyncio
-async def test_reference_agent_accepts_close_prices() -> None:
+def test_reference_agent_accepts_close_prices() -> None:
     agent = CryptoReferenceAgent(
         binance=FakeBinance(),
         okx=FakeOKX(),
@@ -32,15 +31,14 @@ async def test_reference_agent_accepts_close_prices() -> None:
         max_deviation_bps=75,
     )
 
-    result = await agent.check_btc()
+    result = asyncio.run(agent.check_btc())
 
     assert result.ok is True
     assert result.median_price == 100.0
     assert result.max_deviation_bps is not None
 
 
-@pytest.mark.asyncio
-async def test_reference_agent_rejects_large_deviation() -> None:
+def test_reference_agent_rejects_large_deviation() -> None:
     agent = CryptoReferenceAgent(
         binance=FakeBinance(),
         okx=FakeOKX(),
@@ -48,7 +46,7 @@ async def test_reference_agent_rejects_large_deviation() -> None:
         max_deviation_bps=75,
     )
 
-    result = await agent.check_btc()
+    result = asyncio.run(agent.check_btc())
 
     assert result.ok is False
     assert any("deviation" in reason for reason in result.reasons)
