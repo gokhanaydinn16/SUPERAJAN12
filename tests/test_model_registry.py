@@ -35,3 +35,18 @@ def test_approved_model_is_live_eligible_but_not_promotable() -> None:
     assert registry.can_trade_live(version) is True
     assert check.ready is False
     assert check.next_statuses == ("retired",)
+
+
+def test_retire_transition_is_allowed_from_current_status() -> None:
+    registry = ModelRegistry()
+    version = ModelVersion(name="baseline", version="v1", status="retired")
+
+    check = registry.evaluate_promotion(
+        version,
+        latest_score={"sample_count": 60, "score": 0.8, "win_rate": 0.62},
+        current_status="shadow",
+    )
+
+    assert check.ready is True
+    assert check.next_statuses == ("approved", "retired")
+    assert any("ready to retire" in reason for reason in check.reasons)
