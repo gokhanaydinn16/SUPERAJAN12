@@ -7,7 +7,8 @@ from pathlib import Path
 from time import monotonic
 from typing import Any
 
-from fastapi import FastAPI, Query, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
+from pydantic import BaseModel
 
 from superajan12.approval import ManualApprovalGate
 from superajan12.agents.scanner import MarketScannerAgent
@@ -43,6 +44,14 @@ MICRO_LIVE_CHECKLIST_ITEMS = (
     ("reconciliation_tested", "Reconciliation checks have been exercised."),
     ("manual_approval_tested", "Manual approval process has been acknowledged by an operator."),
 )
+
+
+class StrategyTransitionRequest(BaseModel):
+    status: str
+    notes: str | None = None
+    model_name: str | None = None
+    model_version: str | None = None
+    changed_by: str = "desktop_operator"
 
 
 def create_backend_app() -> FastAPI:
@@ -229,6 +238,65 @@ def create_backend_app() -> FastAPI:
         store = SQLiteStore(settings.sqlite_path)
         payload = _build_strategy_payload(store=store, limit=limit)
         event_bus.publish("strategy.snapshot", payload)
+        return payload
+
+    @app.post("/strategy/models/transition")
+    def transition_strategy_model(request: StrategyTransitionRequest) -> dict[str, Any]:
+        settings = ensure_runtime_paths()
+        store = SQLiteStore(settings.sqlite_path)
+        registry = ModelRegistry()
+        model_row = _resolve_transition_target(
+            store=store,
+            model_name=request.model_name,
+            model_version=request.model_version,
+        )
+        if model_row is None:
+            raise HTTPException(status_code=404, detail="no model version available for transition")
+
+        current_status = str(model_row.get("status") or "")
+        target_status = request.status.strip()
+        version = ModelVersion(
+            name=str(model_row.get("name") or ""),
+            version=str(model_row.get("version") or ""),
+            status=current_status,
+            notes=None if model_row.get("notes") is None else str(model_row.get("notes")),
+        )
+        registry.validate(ModelVersion(name=version.name, version=version.version, status=target_status, notes=request.notes))
+
+        allowed = registry.allowed_transitions(current_status)
+        if current_status != target_status and target_status not in allowed:
+            raise HTTPException(
+                status_code=409,
+                detail=f"invalid transition {current_status} -> {target_status}; allowed={list(allowed)}",
+            )
+
+        latest_score = _latest_strategy_score_for(store, version.name)
+        promotion = registry.evaluate_promotion(version, latest_score=latest_score)
+        if target_status != "retired" and target_status in allowed and not promotion.ready:
+            raise HTTPException(
+                status_code=409,
+                detail=f"promotion gate blocked: {' | '.join(promotion.reasons)}",
+            )
+
+        reason = request.notes or f"operator transition {current_status} -> {target_status}"
+        store.save_model_version(
+            name=version.name,
+            version=version.version,
+            status=target_status,
+            notes=request.notes or version.notes,
+            change_reason=reason,
+            changed_by=request.changed_by,
+        )
+        payload = {
+            "ok": True,
+            "name": version.name,
+            "version": version.version,
+            "from_status": current_status,
+            "to_status": target_status,
+            "changed_by": request.changed_by,
+            "notes": request.notes,
+        }
+        event_bus.publish("strategy.model.transitioned", payload)
         return payload
 
     @app.get("/risk/status")
@@ -531,6 +599,28 @@ def _read_audit_events(path: Path, limit: int) -> list[dict[str, Any]]:
         except json.JSONDecodeError:
             events.append({"event_type": "corrupt_line", "raw": line})
     return events
+
+
+def _resolve_transition_target(
+    *,
+    store: SQLiteStore,
+    model_name: str | None,
+    model_version: str | None,
+) -> dict[str, object] | None:
+    rows = store.list_model_versions(limit=100)
+    if model_name and model_version:
+        for row in rows:
+            if str(row.get("name") or "") == model_name and str(row.get("version") or "") == model_version:
+                return row
+        return None
+    return None if not rows else rows[0]
+
+
+def _latest_strategy_score_for(store: SQLiteStore, strategy_name: str) -> dict[str, object] | None:
+    for row in store.list_strategy_scores(limit=100):
+        if str(row.get("strategy_name") or "") == strategy_name:
+            return row
+    return None
 
 
 def _build_dry_run_preview(guard: Any) -> dict[str, Any] | None:
