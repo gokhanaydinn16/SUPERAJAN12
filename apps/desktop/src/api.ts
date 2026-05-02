@@ -59,6 +59,10 @@ export type StrategyScoresPayload = {
   scores: Array<Record<string, unknown>>;
   models: Array<Record<string, unknown>>;
   live_eligible_models: Array<Record<string, unknown>>;
+  promotion_checks: Array<Record<string, unknown>>;
+  model_history: Array<Record<string, unknown>>;
+  summary: Record<string, unknown>;
+  last_transition: Record<string, unknown> | null;
 };
 
 export type RiskStatusPayload = {
