@@ -69,8 +69,17 @@ def test_backend_command_center_endpoints_have_expected_shapes() -> None:
     assert "events" in wallet.json()
 
     assert strategy.status_code == 200
-    assert "scores" in strategy.json()
-    assert "models" in strategy.json()
+    strategy_payload = strategy.json()
+    assert "scores" in strategy_payload
+    assert "models" in strategy_payload
+    assert "live_eligible_models" in strategy_payload
+    assert "promotion_checks" in strategy_payload
+    assert "model_history" in strategy_payload
+    assert "summary" in strategy_payload
+    assert "last_transition" in strategy_payload
+    assert "next_gate" in strategy_payload["summary"]
+    assert "ready_model_count" in strategy_payload["summary"]
+    assert "blocked_model_count" in strategy_payload["summary"]
 
     assert risk.status_code == 200
     risk_payload = risk.json()
