@@ -127,6 +127,18 @@ class SQLiteStore:
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     UNIQUE(name, version)
                 );
+
+                CREATE TABLE IF NOT EXISTS model_status_history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    model_version_id INTEGER NOT NULL REFERENCES model_versions(id) ON DELETE CASCADE,
+                    name TEXT NOT NULL,
+                    version TEXT NOT NULL,
+                    from_status TEXT,
+                    to_status TEXT NOT NULL,
+                    reason TEXT,
+                    changed_by TEXT NOT NULL DEFAULT 'system',
+                    changed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
                 """
             )
             for table, column, ddl in (
@@ -279,8 +291,21 @@ class SQLiteStore:
             ).fetchall()
             return [dict(row) for row in rows]
 
-    def save_model_version(self, name: str, version: str, status: str, notes: str | None = None) -> int:
+    def save_model_version(
+        self,
+        name: str,
+        version: str,
+        status: str,
+        notes: str | None = None,
+        change_reason: str | None = None,
+        changed_by: str = "system",
+    ) -> int:
         with self.connect() as conn:
+            conn.row_factory = sqlite3.Row
+            existing = conn.execute(
+                "SELECT id, status FROM model_versions WHERE name = ? AND version = ?",
+                (name, version),
+            ).fetchone()
             conn.execute(
                 """
                 INSERT INTO model_versions (name, version, status, notes)
@@ -297,7 +322,26 @@ class SQLiteStore:
             ).fetchone()
             if row is None:
                 raise RuntimeError("model version save failed")
-            return int(row[0])
+            model_version_id = int(row["id"])
+            previous_status = None if existing is None else str(existing["status"])
+            if existing is None or previous_status != status:
+                conn.execute(
+                    """
+                    INSERT INTO model_status_history (
+                        model_version_id, name, version, from_status, to_status, reason, changed_by
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        model_version_id,
+                        name,
+                        version,
+                        previous_status,
+                        status,
+                        change_reason or notes or f"status set to {status}",
+                        changed_by,
+                    ),
+                )
+            return model_version_id
 
     def list_model_versions(self, limit: int = 20) -> list[dict[str, object]]:
         with self.connect() as conn:
@@ -306,6 +350,21 @@ class SQLiteStore:
                 """
                 SELECT id, name, version, status, notes, created_at
                 FROM model_versions
+                ORDER BY id DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+            return [dict(row) for row in rows]
+
+    def list_model_status_history(self, limit: int = 50) -> list[dict[str, object]]:
+        with self.connect() as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                """
+                SELECT id, model_version_id, name, version, from_status, to_status,
+                       reason, changed_by, changed_at
+                FROM model_status_history
                 ORDER BY id DESC
                 LIMIT ?
                 """,
