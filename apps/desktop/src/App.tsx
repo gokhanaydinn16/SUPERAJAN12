@@ -6,12 +6,14 @@ import {
   MarketsPayload,
   RiskStatusPayload,
   SourceHealth,
+  StrategyScoresPayload,
   connectEventStream,
   getDashboard,
   getEvents,
   getMarkets,
   getRiskStatus,
   getSources,
+  getStrategyScores,
   runScan,
   verifyEndpoints,
 } from "./api";
@@ -37,8 +39,8 @@ function fmt(value: unknown, digits = 2) {
 }
 
 function statusClass(status: string) {
-  if (status === "live" || status === "clear") return "good";
-  if (status === "stale" || status === "loading" || status === "monitor" || status === "tight") return "warn";
+  if (status === "live" || status === "clear" || status === "approved") return "good";
+  if (status === "stale" || status === "loading" || status === "monitor" || status === "tight" || status === "shadow") return "warn";
   if (status === "offline" || status === "error" || status === "degraded" || status === "blocked") return "bad";
   return "muted-pill";
 }
@@ -62,10 +64,26 @@ function eventToLog(event: BackendEvent) {
   return `${event.type} ${JSON.stringify(event.payload)}`;
 }
 
+function compactTime(value: unknown) {
+  if (!value || typeof value !== "string") return "No timestamp";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return parsed.toLocaleString();
+}
+
+function nextStrategyAction(status: string, liveEligibleCount: number) {
+  if (liveEligibleCount > 0) return "Manual approval and execution secrets are the next gate.";
+  if (status === "shadow") return "Collect more shadow outcomes before requesting approval.";
+  if (status === "candidate") return "Promote the strongest candidate into shadow validation.";
+  if (status === "retired") return "Register a replacement candidate before the next scan cycle.";
+  return "Register the first model version to start the promotion ladder.";
+}
+
 export default function App() {
   const [dashboard, setDashboard] = useState<DashboardPayload | null>(null);
   const [markets, setMarkets] = useState<MarketsPayload | null>(null);
   const [risk, setRisk] = useState<RiskStatusPayload | null>(null);
+  const [strategy, setStrategy] = useState<StrategyScoresPayload | null>(null);
   const [sources, setSources] = useState<SourceHealth[]>([]);
   const [limit, setLimit] = useState(25);
   const [busy, setBusy] = useState(false);
@@ -76,16 +94,18 @@ export default function App() {
 
   async function refresh() {
     try {
-      const [dash, marketsPayload, riskPayload, sourcePayload, events] = await Promise.all([
+      const [dash, marketsPayload, riskPayload, strategyPayload, sourcePayload, events] = await Promise.all([
         getDashboard(),
         getMarkets(),
         getRiskStatus(),
+        getStrategyScores(),
         getSources(),
         getEvents(20),
       ]);
       setDashboard(dash);
       setMarkets(marketsPayload);
       setRisk(riskPayload);
+      setStrategy(strategyPayload);
       setSources(sourcePayload.sources);
       if (events.events.length > 0) {
         setLogs((items) => [
@@ -166,7 +186,22 @@ export default function App() {
   const latestScan = markets?.latest_scan || null;
   const riskSignals = risk?.risk_signals || {};
   const sourceHealthGate = risk?.source_health_gate || {};
+  const strategyModels = strategy?.models || [];
+  const strategyScores = strategy?.scores || [];
+  const liveEligibleModels = strategy?.live_eligible_models || [];
   const onlineSources = useMemo(() => sources.filter((source) => source.status === "live").length, [sources]);
+  const strategyStatusCounts = useMemo(() => {
+    return strategyModels.reduce<Record<string, number>>((acc, row) => {
+      const key = String(row.status || "unknown");
+      acc[key] = (acc[key] || 0) + 1;
+      return acc;
+    }, {});
+  }, [strategyModels]);
+  const latestModel = strategyModels[0] || null;
+  const latestStrategyScore = strategyScores[0] || null;
+  const readinessTone = liveEligibleModels.length > 0 ? "good" : latestModel && latestModel.status === "shadow" ? "warn" : "muted-pill";
+  const readinessLabel = liveEligibleModels.length > 0 ? "promotion ready" : latestModel ? String(latestModel.status || "watching") : "awaiting model";
+  const readinessCopy = nextStrategyAction(String(latestModel?.status || ""), liveEligibleModels.length);
 
   return (
     <div className="shell">
@@ -354,6 +389,75 @@ export default function App() {
           <div className="panel">
             <div className="panel-head"><h2>Wallet Intelligence</h2><span className="pill muted-pill">provider gated</span></div>
             <div className="empty-box">Dune / Nansen / Glassnode adapters require real API access. Wallet feed remains empty until configured.</div>
+          </div>
+          <div className="panel strategy-panel">
+            <div className="panel-head">
+              <h2>Strategy Console</h2>
+              <div className="top-actions">
+                <span className={`pill ${readinessTone}`}>{readinessLabel}</span>
+                <Radar size={18} />
+              </div>
+            </div>
+            <div className="strategy-banner">
+              <div>
+                <strong>{liveEligibleModels.length > 0 ? "Model promotion path is open" : "Promotion path is still gated"}</strong>
+                <p>{readinessCopy}</p>
+              </div>
+              <div className="strategy-stats">
+                <div>
+                  <span>Live eligible</span>
+                  <strong>{fmt(liveEligibleModels.length, 0)}</strong>
+                </div>
+                <div>
+                  <span>Latest score</span>
+                  <strong>{latestStrategyScore ? fmt(latestStrategyScore.score, 2) : "-"}</strong>
+                </div>
+              </div>
+            </div>
+            <div className="summary-strip summary-strip-two strategy-summary">
+              <SummaryCard title="Approved" value={fmt(strategyStatusCounts.approved, 0)} sub="ready models" />
+              <SummaryCard title="Shadow" value={fmt(strategyStatusCounts.shadow, 0)} sub="validation queue" />
+            </div>
+            <div className="strategy-columns">
+              <div>
+                <div className="mini-section-title">Promotion ladder</div>
+                <div className="source-list compact-gap">
+                  {strategyModels.length === 0 ? <div className="empty-box">No model versions recorded yet.</div> : strategyModels.slice(0, 3).map((model, index) => (
+                    <div className="source-row" key={`${model.name}-${model.version}-${index}`}>
+                      <div className="source-body">
+                        <strong>{fmt(model.name, 0)} {fmt(model.version, 0)}</strong>
+                        <div className="source-sub">{model.notes ? fmt(model.notes, 0) : "No transition note recorded."}</div>
+                      </div>
+                      <div className="source-meta vertical-meta">
+                        <span className={`pill ${statusClass(String(model.status || "unknown"))}`}>{fmt(model.status, 0)}</span>
+                        <span className="source-latency">{compactTime(model.created_at)}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <div className="mini-section-title">Recent strategy scores</div>
+                <div className="source-list compact-gap">
+                  {strategyScores.length === 0 ? <div className="empty-box">No strategy score rows yet.</div> : strategyScores.slice(0, 3).map((row, index) => (
+                    <div className="source-row" key={`${row.strategy_name}-${row.created_at}-${index}`}>
+                      <div className="source-body">
+                        <strong>{fmt(row.strategy_name, 0)}</strong>
+                        <div className="source-sub">samples {fmt(row.sample_count, 0)} | win rate {row.win_rate === null || row.win_rate === undefined ? "-" : `${(Number(row.win_rate) * 100).toFixed(1)}%`}</div>
+                      </div>
+                      <div className="source-meta vertical-meta">
+                        <span className={`pill ${Number(row.score || 0) >= 0 ? "good" : "bad"}`}>{fmt(row.score, 2)}</span>
+                        <span className="source-latency">PnL {fmt(row.total_pnl_usdc, 2)}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <div className="strategy-footnote">
+              <span className="mini-section-title">Last transition reason</span>
+              <p>{latestModel?.notes ? fmt(latestModel.notes, 0) : "No model note has been saved for the latest transition."}</p>
+            </div>
           </div>
           <div className="panel large">
             <div className="panel-head"><h2>Audit / Agent Activity</h2><span className="pill good">live event stream</span></div>
