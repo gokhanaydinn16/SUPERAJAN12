@@ -73,7 +73,7 @@ This file is the live queue for the 14-item execution wave. "Started" here means
 
 ## 5. Connector hardening
 
-- Status: started
+- Status: materially advanced
 - Evidence:
   - `src/superajan12/health.py`
   - `src/superajan12/connectors/polymarket.py`
@@ -81,13 +81,19 @@ This file is the live queue for the 14-item execution wave. "Started" here means
   - `src/superajan12/connectors/okx.py`
   - `src/superajan12/connectors/coinbase.py`
   - `src/superajan12/connectors/kalshi.py`
+  - `src/superajan12/runtime.py`
+  - `src/superajan12/backend_api.py`
+  - `src/superajan12/reference_status.py`
+  - `tests/test_reference_agent.py`
+  - `tests/test_reference_status.py`
 - Current state:
-  - health model, source status, retries, source snapshot surface exist
-  - deeper timeout, stale-data, rate-limit, circuit-breaker work remains
+  - live Binance, OKX and Coinbase reference checks are now wired into the backend scan flow
+  - backend now exposes `/reference/checks` so operators can inspect cross-venue agreement directly
+  - scan responses now include reference-check summary metadata instead of leaving the venue adapters disconnected from scoring
+  - serialization helpers and unit tests now lock the reference-check payload contract
 - Next move:
-  - add per-connector stale/failure counters
-  - add circuit-breaker state
-  - surface rate-limit and degradation details into `/system/health`
+  - extend the same live reference-check pattern from BTC/ETH/SOL into more symbol families as strategy coverage grows
+  - fold venue disagreement alarms into desktop notification surfaces
 
 ## 6. Research provider adapters
 
