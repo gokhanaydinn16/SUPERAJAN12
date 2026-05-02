@@ -54,12 +54,39 @@ class ModelRegistry:
         self,
         version: ModelVersion,
         latest_score: Mapping[str, object] | None = None,
+        current_status: str | None = None,
     ) -> ModelPromotionCheck:
-        next_statuses = self.allowed_transitions(version.status)
-        if version.status == "retired":
-            return ModelPromotionCheck(next_statuses=next_statuses, ready=False, reasons=("retired models cannot be promoted",))
+        evaluation_status = current_status or version.status
+        next_statuses = self.allowed_transitions(evaluation_status)
 
-        if version.status == "approved":
+        if current_status is not None:
+            if version.status == evaluation_status:
+                return ModelPromotionCheck(
+                    next_statuses=next_statuses,
+                    ready=False,
+                    reasons=(f"model is already in {evaluation_status} status",),
+                )
+            if version.status not in next_statuses:
+                return ModelPromotionCheck(
+                    next_statuses=next_statuses,
+                    ready=False,
+                    reasons=(f"cannot transition from {evaluation_status} to {version.status}",),
+                )
+            if version.status == "retired":
+                return ModelPromotionCheck(
+                    next_statuses=next_statuses,
+                    ready=True,
+                    reasons=(f"ready to retire model from {evaluation_status}",),
+                )
+
+        if evaluation_status == "retired":
+            return ModelPromotionCheck(
+                next_statuses=next_statuses,
+                ready=False,
+                reasons=("retired models cannot be promoted",),
+            )
+
+        if evaluation_status == "approved":
             if latest_score is not None and float(latest_score.get("score") or 0.0) < 0:
                 return ModelPromotionCheck(
                     next_statuses=next_statuses,
@@ -84,7 +111,7 @@ class ModelRegistry:
         win_rate_raw = latest_score.get("win_rate")
         win_rate = None if win_rate_raw is None else float(win_rate_raw)
 
-        if version.status == "candidate":
+        if evaluation_status == "candidate":
             reasons: list[str] = []
             if sample_count < 20:
                 reasons.append("need at least 20 scored outcomes for shadow promotion")
