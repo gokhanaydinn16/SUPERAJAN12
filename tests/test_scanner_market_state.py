@@ -1,3 +1,5 @@
+import asyncio
+
 from superajan12.agents.risk import RiskEngine
 from superajan12.agents.scanner import MarketScannerAgent
 from superajan12.models import (
@@ -68,7 +70,7 @@ class _FakePolymarketClient:
         return snapshot, ["orderbook yerine midpoint/spread fallback kullanildi"]
 
 
-async def test_scanner_downgrades_synthetic_market_state_to_watch() -> None:
+def test_scanner_downgrades_synthetic_market_state_to_watch() -> None:
     scanner = MarketScannerAgent(
         polymarket=_FakePolymarketClient(),
         risk_engine=RiskEngine(
@@ -126,7 +128,7 @@ async def test_scanner_downgrades_synthetic_market_state_to_watch() -> None:
         ),
     )
 
-    result = await scanner.scan(limit=1)
+    result = asyncio.run(scanner.scan(limit=1))
 
     assert len(result.scores) == 1
     score = result.scores[0]
