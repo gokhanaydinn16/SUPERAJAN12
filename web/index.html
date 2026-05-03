@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Agent OS Cockpit</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <main class="shell">
+    <section class="hero">
+      <div>
+        <p class="eyebrow">Otonom Kripto Ajan Sistemi</p>
+        <h1>Deterministik çekirdek, advisory ajanlar, canlı operasyon görünürlüğü.</h1>
+      </div>
+      <div class="actions">
+        <select id="venueSelect">
+          <option>Binance USDT Futures</option>
+          <option>Deribit</option>
+          <option>Coinbase Advanced Trade</option>
+          <option>OKX</option>
+        </select>
+        <button id="seedCycle">Cycle Çalıştır</button>
+        <button id="killOn" class="danger">Kill Switch Aç</button>
+        <button id="killOff">Kill Switch Kapat</button>
+      </div>
+    </section>
+    <section class="grid">
+      <article class="panel">
+        <h2>Sistem Sağlığı</h2>
+        <pre id="health"></pre>
+      </article>
+      <article class="panel">
+        <h2>Pozisyonlar</h2>
+        <div id="positions" class="stack"></div>
+      </article>
+      <article class="panel">
+        <h2>Açık Emirler</h2>
+        <div id="orders" class="stack"></div>
+      </article>
+      <article class="panel wide">
+        <h2>Karar ve Olay Akışı</h2>
+        <div id="timeline" class="timeline"></div>
+      </article>
+    </section>
+  </main>
+  <script src="/app.js"></script>
+</body>
+</html>

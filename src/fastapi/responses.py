@@ -1,2 +1,0 @@
-class HTMLResponse:
-    pass
