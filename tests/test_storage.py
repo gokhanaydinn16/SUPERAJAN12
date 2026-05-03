@@ -14,6 +14,7 @@ def test_sqlite_store_saves_scan(tmp_path) -> None:
             MarketScore(
                 market_id="m1",
                 question="Test market?",
+                category="crypto",
                 decision=Decision.APPROVE,
                 score=123.0,
                 volume_usdc=5000,
@@ -39,6 +40,7 @@ def test_sqlite_store_saves_scan(tmp_path) -> None:
             PaperTradeIdea(
                 market_id="m1",
                 question="Test market?",
+                category="crypto",
                 side="YES",
                 reference_price=0.5,
                 risk_usdc=10,
@@ -51,6 +53,7 @@ def test_sqlite_store_saves_scan(tmp_path) -> None:
             PaperPosition(
                 market_id="m1",
                 question="Test market?",
+                category="crypto",
                 side="YES",
                 entry_price=0.5,
                 size_shares=20,
@@ -72,7 +75,7 @@ def test_sqlite_store_saves_scan(tmp_path) -> None:
         ).fetchone()[0]
         quality = conn.execute(
             """
-            SELECT liquidity_confidence, manipulation_risk_score, news_confidence
+            SELECT category, liquidity_confidence, manipulation_risk_score, news_confidence
             FROM market_scores WHERE scan_id = ?
             """,
             (scan_id,),
@@ -83,7 +86,7 @@ def test_sqlite_store_saves_scan(tmp_path) -> None:
     assert idea_count == 1
     assert position_count == 1
     assert summary == 1
-    assert quality == (0.9, 0.1, 0.8)
+    assert quality == ("crypto", 0.9, 0.1, 0.8)
 
 
 def test_save_model_version_updates_existing_row_without_replacing_identity(tmp_path) -> None:
@@ -97,3 +100,51 @@ def test_save_model_version_updates_existing_row_without_replacing_identity(tmp_
     assert len(rows) == 1
     assert rows[0]["status"] == "approved"
     assert rows[0]["notes"] == "updated"
+
+
+def test_auto_shadow_mark_uses_latest_market_scores(tmp_path) -> None:
+    store = SQLiteStore(tmp_path / "superajan12.sqlite3")
+    result = ScanResult(
+        started_at=datetime.now(timezone.utc),
+        finished_at=datetime.now(timezone.utc),
+        limit=1,
+        scores=[
+            MarketScore(
+                market_id="m1",
+                question="Test market?",
+                category="crypto",
+                decision=Decision.APPROVE,
+                score=50.0,
+                volume_usdc=5000,
+                liquidity_usdc=1000,
+                spread_bps=100,
+                best_bid=0.59,
+                best_ask=0.61,
+                bid_depth_usdc=59,
+                ask_depth_usdc=61,
+                orderbook_source="book",
+                suggested_paper_risk_usdc=10,
+                reasons=["ok"],
+            )
+        ],
+        ideas=[],
+        paper_positions=[
+            PaperPosition(
+                market_id="m1",
+                question="Test market?",
+                category="crypto",
+                side="YES",
+                entry_price=0.5,
+                size_shares=20,
+                risk_usdc=10,
+            )
+        ],
+    )
+    store.save_scan(result)
+
+    rows = store.auto_shadow_mark_from_latest_scores()
+
+    assert len(rows) == 1
+    assert rows[0]["status"] == "marked"
+    assert rows[0]["latest_price"] == 0.6
+    assert rows[0]["category"] == "crypto"
