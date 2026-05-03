@@ -8,7 +8,7 @@ on:
   pull_request:
 
 jobs:
-  test:
+  python-real-deps:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -24,13 +24,29 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e .[dev]
 
+      - name: Verify installed dependency lane
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import fastapi
+          import httpx
+          import pydantic
+          import pytest
+
+          for module in (pydantic, fastapi, httpx, pytest):
+              path = Path(module.__file__).resolve()
+              if "/src/" in path.as_posix():
+                  raise SystemExit(f"expected installed dependency, got repo shim: {module.__name__} -> {path}")
+              print(f"{module.__name__}: {path}")
+          PY
+
       - name: Lint
         run: ruff check src tests
 
       - name: Test
-        run: pytest -q
+        run: pytest -q -o pythonpath=
 
-  runtime-compat:
+  python-runtime-compat:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -41,10 +57,21 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install runtime package only
+      - name: Verify repository compatibility lane
         run: |
-          python -m pip install --upgrade pip
-          pip install -e .
+          PYTHONPATH=src python - <<'PY'
+          from pathlib import Path
+          import fastapi
+          import httpx
+          import pydantic
+          import pytest
+
+          for module in (pydantic, fastapi, httpx, pytest):
+              path = Path(module.__file__).resolve()
+              if "/src/" not in path.as_posix():
+                  raise SystemExit(f"expected repo compatibility module, got installed dependency: {module.__name__} -> {path}")
+              print(f"{module.__name__}: {path}")
+          PY
 
       - name: Runtime compatibility test
         run: PYTHONPATH=src python -m pytest -q
