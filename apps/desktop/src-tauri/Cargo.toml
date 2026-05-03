@@ -1,6 +1,6 @@
 [package]
 name = "superajan12-desktop"
-version = "0.1.0"
+version = "0.2.0"
 description = "SuperAjan12 Desktop Command Center"
 edition = "2021"
 
