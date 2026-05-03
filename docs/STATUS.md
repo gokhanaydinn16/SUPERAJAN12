@@ -2,7 +2,7 @@
 
 ## Summary
 
-SuperAjan12 is currently a safe paper/shadow trading core for Polymarket-centered prediction market research plus a desktop command-center surface. It does not send live orders. The system has market scanning, risk checks, quality agents, paper positions, shadow mark-to-market, strategy scoring, model version tracking, live-execution safety gates, and a local backend API that can be consumed by the desktop shell.
+SuperAjan12 is currently a safe paper/shadow trading core for Polymarket-centered prediction market research plus a desktop command-center surface. It does not send live orders. The system has market scanning, risk checks, quality agents, paper positions, shadow mark-to-market, strategy scoring, model version tracking, live-execution safety gates, a local backend API, and an explicit release/readiness workflow for Python and desktop-web artifacts.
 
 ## What is complete
 
@@ -35,8 +35,8 @@ SuperAjan12 is currently a safe paper/shadow trading core for Polymarket-centere
 - Desktop sidecar backend startup with health-check validation and fallback to external backend mode.
 - Local backend endpoints for execution status, system health and event history.
 - Local constrained-runtime compatibility path for backend and tests.
-- CLI commands for scan, report, endpoint verification, reference checks, shadow, strategy, model, reconciliation, capital and execution checks.
-- CI workflow, tests and runtime-compat validation job.
+- Explicit CI separation between installed dependency mode and repository runtime-compat mode.
+- Release workflow, changelog source of truth, and versioning policy.
 
 ## What is intentionally not complete
 
@@ -44,7 +44,8 @@ SuperAjan12 is currently a safe paper/shadow trading core for Polymarket-centere
 - No real wallet/private key integration.
 - No exchange account access.
 - No autonomous code modification.
-- No production deployment automation.
+- No automatic PyPI publish.
+- No signed desktop bundles.
 - No direct social media scraping.
 - No direct Dune/Arkham/Nansen integration yet.
 
@@ -75,7 +76,7 @@ superajan12 reference-check --symbols BTC,ETH,SOL
 superajan12 scan --limit 25
 superajan12 report
 superajan12 shadow-report
-pytest -q
+pytest -q -o pythonpath=
 ruff check src tests
 ```
 
@@ -104,4 +105,4 @@ This validates the backend and test surface through the repository's local compa
 
 ## Current recommendation
 
-Continue running paper/shadow mode. Keep live order sending disabled. Desktop packaging should resume only in an environment with npm registry access and a Rust toolchain.
+Continue running paper/shadow mode. Keep live order sending disabled. Use the release workflow only for Python artifacts and desktop web artifacts until desktop bundling assets are versioned.
