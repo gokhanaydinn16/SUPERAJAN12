@@ -83,6 +83,7 @@ class DeterministicOrderBook:
         if event.event_type in {ReplayEventType.SNAPSHOT, ReplayEventType.RESNAPSHOT}:
             self.bids = self._levels_to_map(event.bids)
             self.asks = self._levels_to_map(event.asks)
+            previous = None
         elif event.event_type == ReplayEventType.DIFF:
             self._apply_deltas(self.bids, event.bids)
             self._apply_deltas(self.asks, event.asks)
