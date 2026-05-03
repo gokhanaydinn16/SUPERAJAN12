@@ -84,6 +84,18 @@ jobs:
             echo "name=SuperAjan12 ${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Download Python artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: python-dist
+          path: release-assets/python-dist
+
+      - name: Download desktop web artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: desktop-web-dist
+          path: release-assets/desktop-web-dist
+
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
@@ -97,4 +109,7 @@ jobs:
             - Desktop web build artifact
 
             Desktop bundles remain intentionally disabled until release-grade desktop packaging inputs are committed.
+          files: |
+            release-assets/python-dist/*
+            release-assets/desktop-web-dist/**
           generate_release_notes: false
