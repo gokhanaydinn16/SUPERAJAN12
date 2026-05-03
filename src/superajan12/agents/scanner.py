@@ -15,7 +15,7 @@ from superajan12.agents.social import SocialSignalAgent
 from superajan12.agents.wallet import SmartWalletAgent
 from superajan12.connectors.polymarket import PolymarketClient
 from superajan12.market_state import MarketStateValidation, MarketStateValidator
-from superajan12.models import Decision, MarketScore, OrderBookSnapshot, PaperTradeIdea, ScanResult
+from superajan12.models import Decision, MarketScore, OrderBookSnapshot, PaperPosition, PaperTradeIdea, ScanResult
 
 
 class MarketScannerAgent:
@@ -56,7 +56,7 @@ class MarketScannerAgent:
         markets = await self.polymarket.list_markets(limit=limit)
         scores: list[MarketScore] = []
         ideas: list[PaperTradeIdea] = []
-        paper_positions = []
+        paper_positions: list[PaperPosition] = []
 
         for market in markets:
             token_id = self.polymarket.extract_yes_token_id(market)
@@ -134,6 +134,7 @@ class MarketScannerAgent:
             score = MarketScore(
                 market_id=market.id,
                 question=market.question,
+                category=market.category,
                 decision=final_decision,
                 score=score_value,
                 reasons=reasons,
@@ -172,6 +173,7 @@ class MarketScannerAgent:
                 idea = PaperTradeIdea(
                     market_id=market.id,
                     question=market.question,
+                    category=market.category,
                     side="YES",
                     reference_price=analysis_book.mid if analysis_book else None,
                     risk_usdc=risk.max_risk_usdc,
@@ -182,7 +184,19 @@ class MarketScannerAgent:
                 ideas.append(idea)
                 position = self.paper_portfolio.open_from_idea(idea)
                 if position is not None:
-                    paper_positions.append(position)
+                    paper_positions.append(
+                        PaperPosition(
+                            market_id=position.market_id,
+                            question=position.question,
+                            category=market.category,
+                            side=position.side,
+                            entry_price=position.entry_price,
+                            size_shares=position.size_shares,
+                            risk_usdc=position.risk_usdc,
+                            opened_at=position.opened_at,
+                            status=position.status,
+                        )
+                    )
 
         scores.sort(key=lambda item: item.score, reverse=True)
         return ScanResult(
