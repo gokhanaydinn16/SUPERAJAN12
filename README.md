@@ -110,7 +110,7 @@ Alternatif CLI dogrulama:
 
 ```bash
 superajan12 verify-endpoints
-superajan12 reference-check --symbols BTC,ETH,SOL
+superajan12 reference-check --symbols BTC,ETH,SOL,XRP,DOGE
 superajan12 scan --limit 25
 superajan12 report
 ```
@@ -122,9 +122,11 @@ superajan12 strategy-score --name baseline --pnl 1.2,-0.5,0.8 --save
 superajan12 strategy-list --limit 10
 superajan12 model-register --name probability --version 0.1.0 --status candidate --notes "baseline"
 superajan12 model-list --limit 20
+superajan12 model-policy --limit 20
 superajan12 reconcile --local 0 --external 0
 superajan12 capital-check --requested-risk 5 --open-risk 10 --daily-pnl -1
 superajan12 execution-check --mode paper
+superajan12 operations-report
 superajan12 prepare-order --market-id m1 --side YES --price 0.50 --size 10 --force-guard
 ```
 
@@ -132,6 +134,7 @@ Shadow komutlari:
 
 ```bash
 superajan12 shadow-mark --position-id 1 --market-id m1 --entry-price 0.40 --size-shares 25 --side YES --risk-usdc 10 --latest-price 0.50
+superajan12 shadow-sync
 superajan12 shadow-report
 ```
 
