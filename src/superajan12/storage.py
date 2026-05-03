@@ -44,6 +44,7 @@ class SQLiteStore:
                     scan_id INTEGER NOT NULL REFERENCES scans(id) ON DELETE CASCADE,
                     market_id TEXT NOT NULL,
                     question TEXT NOT NULL,
+                    category TEXT,
                     decision TEXT NOT NULL,
                     score REAL NOT NULL,
                     volume_usdc REAL NOT NULL,
@@ -82,6 +83,7 @@ class SQLiteStore:
                     scan_id INTEGER NOT NULL REFERENCES scans(id) ON DELETE CASCADE,
                     market_id TEXT NOT NULL,
                     question TEXT NOT NULL,
+                    category TEXT,
                     side TEXT NOT NULL,
                     reference_price REAL,
                     risk_usdc REAL NOT NULL,
@@ -96,6 +98,7 @@ class SQLiteStore:
                     scan_id INTEGER NOT NULL REFERENCES scans(id) ON DELETE CASCADE,
                     market_id TEXT NOT NULL,
                     question TEXT NOT NULL,
+                    category TEXT,
                     side TEXT NOT NULL,
                     entry_price REAL NOT NULL,
                     size_shares REAL NOT NULL,
@@ -192,6 +195,7 @@ class SQLiteStore:
             )
             for table, column, ddl in (
                 ("scans", "paper_position_count", "INTEGER NOT NULL DEFAULT 0"),
+                ("market_scores", "category", "TEXT"),
                 ("market_scores", "bid_depth_usdc", "REAL NOT NULL DEFAULT 0"),
                 ("market_scores", "ask_depth_usdc", "REAL NOT NULL DEFAULT 0"),
                 ("market_scores", "orderbook_source", "TEXT"),
@@ -214,8 +218,10 @@ class SQLiteStore:
                 ("market_scores", "social_confidence", "REAL"),
                 ("market_scores", "smart_wallet_confidence", "REAL"),
                 ("market_scores", "reference_confidence", "REAL"),
+                ("paper_trade_ideas", "category", "TEXT"),
                 ("paper_trade_ideas", "model_probability", "REAL"),
                 ("paper_trade_ideas", "edge", "REAL"),
+                ("paper_positions", "category", "TEXT"),
                 ("execution_sessions", "open_order_count", "INTEGER NOT NULL DEFAULT 0"),
             ):
                 self._ensure_column(conn, table, column, ddl)
@@ -269,13 +275,93 @@ class SQLiteStore:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(
                 """
-                SELECT id, market_id, question, side, entry_price, size_shares, risk_usdc, opened_at, status
+                SELECT id, market_id, question, category, side, entry_price,
+                       size_shares, risk_usdc, opened_at, status
                 FROM paper_positions
                 WHERE status = 'open'
                 ORDER BY id ASC
                 """
             ).fetchall()
             return [dict(row) for row in rows]
+
+    def latest_market_price_map(self, market_ids: list[str]) -> dict[str, dict[str, object]]:
+        if not market_ids:
+            return {}
+        snapshot_map: dict[str, dict[str, object]] = {}
+        with self.connect() as conn:
+            conn.row_factory = sqlite3.Row
+            for market_id in market_ids:
+                row = conn.execute(
+                    """
+                    SELECT market_id, question, category, best_bid, best_ask,
+                           implied_probability, model_probability, score, id
+                    FROM market_scores
+                    WHERE market_id = ?
+                    ORDER BY id DESC
+                    LIMIT 1
+                    """,
+                    (market_id,),
+                ).fetchone()
+                if row is None:
+                    continue
+                data = dict(row)
+                best_bid = data.get("best_bid")
+                best_ask = data.get("best_ask")
+                latest_price = None
+                if isinstance(best_bid, (int, float)) and isinstance(best_ask, (int, float)):
+                    latest_price = (float(best_bid) + float(best_ask)) / 2
+                elif isinstance(best_bid, (int, float)):
+                    latest_price = float(best_bid)
+                elif isinstance(best_ask, (int, float)):
+                    latest_price = float(best_ask)
+                elif isinstance(data.get("implied_probability"), (int, float)):
+                    latest_price = float(data["implied_probability"])
+                elif isinstance(data.get("model_probability"), (int, float)):
+                    latest_price = float(data["model_probability"])
+                data["latest_price"] = latest_price
+                snapshot_map[market_id] = data
+        return snapshot_map
+
+    def auto_shadow_mark_from_latest_scores(self) -> list[dict[str, object]]:
+        from superajan12.models import PaperPosition
+        from superajan12.shadow import ShadowEvaluator
+
+        positions = self.list_open_positions()
+        latest_prices = self.latest_market_price_map([str(position.get("market_id")) for position in positions])
+        evaluator = ShadowEvaluator()
+        results: list[dict[str, object]] = []
+
+        for position_row in positions:
+            market_id = str(position_row.get("market_id") or "")
+            snapshot = latest_prices.get(market_id)
+            latest_price = None if snapshot is None else snapshot.get("latest_price")
+            position = PaperPosition(
+                market_id=market_id,
+                question=str(position_row.get("question") or market_id),
+                category=None if position_row.get("category") is None else str(position_row.get("category")),
+                side=str(position_row.get("side") or "YES"),
+                entry_price=float(position_row.get("entry_price") or 0.0),
+                size_shares=float(position_row.get("size_shares") or 0.0),
+                risk_usdc=float(position_row.get("risk_usdc") or 0.0),
+                opened_at=PaperPosition().opened_at if False else position_row.get("opened_at"),
+                status=str(position_row.get("status") or "open"),
+            )
+            if not isinstance(position.opened_at, str):
+                pass
+            outcome = evaluator.evaluate_position(position, latest_price=None if latest_price is None else float(latest_price))
+            outcome_id = int(self.save_shadow_outcome(int(position_row.get("id") or 0), outcome))
+            results.append(
+                {
+                    "position_id": int(position_row.get("id") or 0),
+                    "market_id": market_id,
+                    "category": position_row.get("category"),
+                    "latest_price": latest_price,
+                    "outcome_id": outcome_id,
+                    "status": outcome.status,
+                    "unrealized_pnl_usdc": outcome.unrealized_pnl_usdc,
+                }
+            )
+        return results
 
     def save_shadow_outcome(self, position_id: int, outcome: ShadowOutcome) -> int:
         with self.connect() as conn:
@@ -316,6 +402,30 @@ class SQLiteStore:
             wins = int(result.get("wins") or 0)
             result["win_rate"] = None if count == 0 else wins / count
             return result
+
+    def shadow_category_summary(self) -> list[dict[str, object]]:
+        with self.connect() as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                """
+                SELECT COALESCE(p.category, 'uncategorized') AS category,
+                       COUNT(*) AS outcome_count,
+                       COALESCE(SUM(s.unrealized_pnl_usdc), 0) AS total_unrealized_pnl_usdc,
+                       AVG(s.unrealized_pnl_usdc) AS avg_unrealized_pnl_usdc,
+                       SUM(CASE WHEN s.unrealized_pnl_usdc > 0 THEN 1 ELSE 0 END) AS wins
+                FROM shadow_outcomes s
+                JOIN paper_positions p ON p.id = s.position_id
+                WHERE s.unrealized_pnl_usdc IS NOT NULL
+                GROUP BY COALESCE(p.category, 'uncategorized')
+                ORDER BY total_unrealized_pnl_usdc DESC, outcome_count DESC
+                """
+            ).fetchall()
+            items = [dict(row) for row in rows]
+            for item in items:
+                count = int(item.get("outcome_count") or 0)
+                wins = int(item.get("wins") or 0)
+                item["win_rate"] = None if count == 0 else wins / count
+            return items
 
     def save_strategy_score(self, score: StrategyScore) -> int:
         with self.connect() as conn:
@@ -623,7 +733,7 @@ class SQLiteStore:
         conn.executemany(
             """
             INSERT INTO market_scores (
-                scan_id, market_id, question, decision, score, volume_usdc,
+                scan_id, market_id, question, category, decision, score, volume_usdc,
                 liquidity_usdc, spread_bps, best_bid, best_ask, bid_depth_usdc,
                 ask_depth_usdc, orderbook_source, market_state_status, market_state_confidence,
                 market_state_venue, market_state_snapshot_kind, market_state_sequence_status,
@@ -633,13 +743,14 @@ class SQLiteStore:
                 manipulation_risk_score, news_confidence, social_confidence,
                 smart_wallet_confidence, reference_confidence, suggested_paper_risk_usdc,
                 reasons_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 (
                     scan_id,
                     score.market_id,
                     score.question,
+                    score.category,
                     score.decision.value,
                     score.score,
                     score.volume_usdc,
@@ -680,15 +791,16 @@ class SQLiteStore:
         conn.executemany(
             """
             INSERT INTO paper_trade_ideas (
-                scan_id, market_id, question, side, reference_price,
+                scan_id, market_id, question, category, side, reference_price,
                 risk_usdc, model_probability, edge, created_at, reasons_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 (
                     scan_id,
                     idea.market_id,
                     idea.question,
+                    idea.category,
                     idea.side,
                     idea.reference_price,
                     idea.risk_usdc,
@@ -705,15 +817,16 @@ class SQLiteStore:
         conn.executemany(
             """
             INSERT INTO paper_positions (
-                scan_id, market_id, question, side, entry_price,
+                scan_id, market_id, question, category, side, entry_price,
                 size_shares, risk_usdc, opened_at, status
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 (
                     scan_id,
                     position.market_id,
                     position.question,
+                    position.category,
                     position.side,
                     position.entry_price,
                     position.size_shares,
