@@ -386,6 +386,22 @@ def create_backend_app() -> FastAPI:
         secrets_ready = all(secret.present for secret in secret_refs)
         local_open_positions = len(store.list_open_positions())
         reconciliation = ReconciliationAgent().blocking_placeholder()
+        reconciliation_vetoes = [reconciliation.code, *reconciliation.reasons]
+        latest_reconciliation_veto = store.latest_execution_veto("reconciliation")
+        should_record_reconciliation_block = not reconciliation.ok and (
+            latest_reconciliation_veto is None
+            or list(latest_reconciliation_veto.get("vetoes") or []) != reconciliation_vetoes
+        )
+        if should_record_reconciliation_block:
+            store.record_execution_veto(scope="reconciliation", vetoes=reconciliation_vetoes)
+            event_bus.publish(
+                "reconciliation.blocking",
+                {
+                    "code": reconciliation.code,
+                    "reasons": list(reconciliation.reasons),
+                    "local_open_positions": local_open_positions,
+                },
+            )
         readiness = _build_micro_live_readiness(
             store=store,
             strategy_payload=strategy_payload,
@@ -423,6 +439,7 @@ def create_backend_app() -> FastAPI:
             },
             "reconciliation": {
                 "ok": reconciliation.ok,
+                "code": reconciliation.code,
                 "reasons": list(reconciliation.reasons),
                 "local_open_positions": local_open_positions,
             },
@@ -542,6 +559,7 @@ def create_backend_app() -> FastAPI:
         rows = store.list_open_positions()
         payload = {
             "positions": rows,
+            "count": len(rows),
             "shadow": store.shadow_summary(),
         }
         event_bus.publish("positions.snapshot", {"count": len(rows)})
