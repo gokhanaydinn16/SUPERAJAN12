@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from superajan12.safety import SafetyController
 
 
@@ -57,3 +59,34 @@ def test_safety_controller_tracks_stale_and_disconnect_locks() -> None:
     assert cleared.stale_data_lock is False
     assert cleared.disconnect_lock is False
     assert cleared.can_open_new_positions is True
+
+
+def test_safety_controller_persists_state_across_instances(tmp_path: Path) -> None:
+    state_path = tmp_path / "safety_state.json"
+
+    writer = SafetyController(state_path)
+    writer.enable_kill_switch("manual emergency stop")
+    writer.enable_stale_data_lock("stale feed")
+
+    reader = SafetyController(state_path)
+    state = reader.state()
+
+    assert state.kill_switch is True
+    assert state.safe_mode is True
+    assert state.stale_data_lock is True
+    assert "manual emergency stop" in state.reasons
+    assert state_path.exists() is True
+
+
+def test_safety_controller_clear_persists_reset_state(tmp_path: Path) -> None:
+    state_path = tmp_path / "safety_state.json"
+
+    controller = SafetyController(state_path)
+    controller.enable_safe_mode("operator pause")
+    controller.enable_kill_switch("manual emergency stop")
+    controller.clear_safe_mode()
+
+    reloaded = SafetyController(state_path).state()
+    assert reloaded.safe_mode is False
+    assert reloaded.kill_switch is False
+    assert reloaded.reasons == ()
