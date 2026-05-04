@@ -8,6 +8,42 @@ This file is the live queue for the 14-item execution wave. "Started" here means
 - current blocker is identified where one exists
 - next technical move is defined
 
+## Agent loop - 2026-05-04
+
+Goal: keep the 100/100 readiness push moving through small, auditable agent-style work cycles.
+
+### Active agents
+
+| Agent | Current focus | Output this cycle | Next action |
+| --- | --- | --- | --- |
+| Repo agent | Repository and PR state | Confirmed `gokhanaydinn16/superajan12` access and open PR set: #29, #38, #39 | Keep PR inventory fresh before every merge attempt |
+| CI agent | Required checks | Confirmed CI success on #29, #38, and #39 head commits | Recheck after every head movement |
+| Safety agent | #32 risk/live gates | Prioritized #38 safety-state persistence and #39 reconciliation false-green removal | Land draft PRs once ready-for-review state is cleared |
+| Release agent | #37 CI/release gates | Prioritized #29 workflow/release hardening | Land #29 after draft state is cleared |
+| Orchestration agent | Continuous sprint board | Added this loop to the persistent execution queue | Continue with small PRs instead of broad unsafe rewrites |
+
+### Current blockers found by the agents
+
+- #29 is mergeable and CI-successful, but still draft.
+- #38 is mergeable and CI-successful, but still draft.
+- #39 is mergeable and CI-successful, but still draft.
+- Connector attempt to mark draft PRs ready for review failed because the GitHub GraphQL response shape exposed an unsupported `htmlUrl` field in the tool wrapper.
+- Direct merge attempts are blocked by GitHub while the PRs remain draft.
+
+### Sprint order
+
+1. Mark #38 ready and squash-merge: persisted safety state across restarts.
+2. Mark #39 ready and squash-merge: block synthetic reconciliation readiness pass.
+3. Mark #29 ready and squash-merge: repo workflow, smoke, and release-compliance hardening.
+4. After those land, create the next #32 patch for explicit reconciliation incident events.
+5. Then create the next #37 patch for artifact integrity/provenance checks.
+
+### Safety boundary
+
+- No live order submission.
+- No secrets, credentials, signing keys, or account access.
+- No live adapter implementation beyond dry-run and readiness gates until phases 1-13 are satisfied.
+
 ## 1. Tauri native build chain
 
 - Status: started
