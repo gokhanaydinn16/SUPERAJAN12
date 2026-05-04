@@ -19,6 +19,7 @@ def test_execution_guard_blocks_stale_disconnect_and_position_caps() -> None:
         ),
         approval_ticket=ticket,
         secrets_ready=True,
+        capital_stage="canary",
         market_data_fresh=False,
         stale_data_age_seconds=22.0,
         stale_data_max_age_seconds=15.0,
@@ -43,7 +44,7 @@ def test_execution_guard_blocks_stale_disconnect_and_position_caps() -> None:
     assert "manual pre-trade veto" in decision.vetoes
 
 
-def test_execution_guard_allows_clean_live_context() -> None:
+def test_execution_guard_allows_clean_live_context_in_canary_stage() -> None:
     gate = ManualApprovalGate()
     ticket = gate.approve(gate.request("live_execution", "test"), approved_by="operator")
     guard = ExecutionGuard(gate)
@@ -59,6 +60,7 @@ def test_execution_guard_allows_clean_live_context() -> None:
         ),
         approval_ticket=ticket,
         secrets_ready=True,
+        capital_stage="canary",
         market_data_fresh=True,
         stale_data_age_seconds=2.0,
         stale_data_max_age_seconds=15.0,
@@ -74,3 +76,31 @@ def test_execution_guard_allows_clean_live_context() -> None:
     assert decision.allowed is True
     assert decision.vetoes == ()
     assert decision.cancel_on_disconnect_required is True
+    assert "capital stage canary permits live execution" in decision.reasons
+
+
+def test_execution_guard_blocks_live_execution_outside_live_stage() -> None:
+    gate = ManualApprovalGate()
+    ticket = gate.approve(gate.request("live_execution", "test"), approved_by="operator")
+    guard = ExecutionGuard(gate)
+
+    decision = guard.can_execute(
+        mode="live",
+        safety_state=SafetyState(
+            safe_mode=False,
+            kill_switch=False,
+            stale_data_lock=False,
+            disconnect_lock=False,
+            reasons=(),
+        ),
+        approval_ticket=ticket,
+        secrets_ready=True,
+        capital_stage="shadow",
+        market_data_fresh=True,
+        venue_session_connected=True,
+        cancel_on_disconnect_supported=True,
+        cancel_on_disconnect_required=True,
+    )
+
+    assert decision.allowed is False
+    assert "capital stage 'shadow' does not permit live execution" in decision.vetoes
