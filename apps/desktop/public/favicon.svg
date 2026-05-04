@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
+  <title>SuperAjan12 icon</title>
+  <desc>Shield-style icon for the SuperAjan12 desktop command center.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0%" stop-color="#0f172a" />
+      <stop offset="100%" stop-color="#0ea5e9" />
+    </linearGradient>
+    <linearGradient id="accent" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0%" stop-color="#22c55e" />
+      <stop offset="100%" stop-color="#38bdf8" />
+    </linearGradient>
+  </defs>
+  <rect x="10" y="10" width="108" height="108" rx="24" fill="url(#bg)" />
+  <path d="M64 26 91 38v24c0 18-10 31-27 40C47 93 37 80 37 62V38l27-12Z" fill="none" stroke="#e2e8f0" stroke-width="8" stroke-linejoin="round" />
+  <path d="M49 69h12l6-27 12 17h10" fill="none" stroke="url(#accent)" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" />
+</svg>
