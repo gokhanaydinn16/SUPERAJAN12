@@ -6,6 +6,8 @@ from typing import Literal
 from superajan12.approval import ApprovalTicket, ManualApprovalGate
 from superajan12.safety import SafetyState
 
+CapitalStage = Literal["paper", "shadow", "testnet", "canary", "scaled_live"]
+
 
 @dataclass(frozen=True)
 class ExecutionDecision:
@@ -30,6 +32,7 @@ class ExecutionGuard:
         approval_ticket: ApprovalTicket | None = None,
         secrets_ready: bool = False,
         *,
+        capital_stage: CapitalStage = "paper",
         market_data_fresh: bool = True,
         stale_data_age_seconds: float | None = None,
         stale_data_max_age_seconds: float | None = None,
@@ -47,6 +50,8 @@ class ExecutionGuard:
 
         if mode != "live":
             vetoes.append("live execution disabled outside live mode")
+        elif capital_stage not in {"canary", "scaled_live"}:
+            vetoes.append(f"capital stage '{capital_stage}' does not permit live execution")
 
         if safety_state.kill_switch:
             vetoes.append("kill-switch blocks execution")
@@ -101,6 +106,8 @@ class ExecutionGuard:
             notes.append("market data fresh")
         if not hard_position_cap_hit:
             notes.append("position caps within limits")
+        if mode == "live" and capital_stage in {"canary", "scaled_live"}:
+            notes.append(f"capital stage {capital_stage} permits live execution")
 
         reasons = tuple(vetoes if vetoes else notes or ["all execution gates passed"])
         return ExecutionDecision(
