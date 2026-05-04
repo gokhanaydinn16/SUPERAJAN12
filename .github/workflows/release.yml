@@ -124,6 +124,11 @@ jobs:
           name: desktop-web-dist
           path: release-assets/desktop-web-dist
 
+      - name: Generate artifact checksums
+        working-directory: release-assets
+        run: |
+          find . -type f ! -name 'SHA256SUMS.txt' -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS.txt
+
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
@@ -135,9 +140,11 @@ jobs:
             Included artifacts:
             - Python sdist and wheel
             - Desktop web build artifact
+            - SHA256 checksum manifest for uploaded artifacts
 
             Desktop bundles remain intentionally disabled until release-grade desktop packaging inputs are committed.
           files: |
             release-assets/python-dist/*
             release-assets/desktop-web-dist/**
+            release-assets/SHA256SUMS.txt
           generate_release_notes: false
