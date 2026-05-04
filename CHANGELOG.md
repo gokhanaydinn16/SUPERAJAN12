@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog, and this repository follows semantic versioning for the Python package, desktop shell, and release tags.
 
+## [Unreleased]
+
+### Added
+- A root `Makefile` with stable developer entrypoints for bootstrap, validation, smoke checks, backend startup, and web startup.
+- `scripts/bootstrap.sh`, `scripts/check.sh`, and `scripts/smoke.sh` to make local setup and repeat validation more repeatable.
+- `scripts/release-compliance.sh` to verify version parity and release-heading discipline before publication.
+- `CONTRIBUTING.md`, `docs/DEVELOPMENT.md`, and `.editorconfig` so repo usage and formatting expectations are explicit.
+
+### Changed
+- Expanded `.gitignore` to cover local build outputs, coverage artifacts, and desktop dependency/build directories.
+- Updated `README.md` with the preferred developer workflow and command map.
+- Added `smoke` and `release-compliance` CI lanes, and made the release workflow stop before publish when version/changelog checks fail.
+
 ## [0.2.0] - 2026-05-03
 
 ### Added

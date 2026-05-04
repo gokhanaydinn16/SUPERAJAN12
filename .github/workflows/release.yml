@@ -15,8 +15,44 @@ permissions:
   contents: write
 
 jobs:
+  release-compliance:
+    runs-on: ubuntu-latest
+    outputs:
+      target_version: ${{ steps.meta.outputs.target_version }}
+      tag: ${{ steps.meta.outputs.tag }}
+      name: ${{ steps.meta.outputs.name }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Resolve release metadata
+        id: meta
+        run: |
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            echo "target_version=${{ inputs.release_version }}" >> "$GITHUB_OUTPUT"
+            echo "tag=v${{ inputs.release_version }}" >> "$GITHUB_OUTPUT"
+            echo "name=SuperAjan12 v${{ inputs.release_version }}" >> "$GITHUB_OUTPUT"
+          else
+            target_version="${GITHUB_REF_NAME#v}"
+            echo "target_version=${target_version}" >> "$GITHUB_OUTPUT"
+            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+            echo "name=SuperAjan12 ${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Validate release surface parity and changelog
+        env:
+          TARGET_VERSION: ${{ steps.meta.outputs.target_version }}
+        run: bash scripts/release-compliance.sh
+
   build-python:
     runs-on: ubuntu-latest
+    needs:
+      - release-compliance
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -40,6 +76,8 @@ jobs:
 
   build-desktop-web:
     runs-on: ubuntu-latest
+    needs:
+      - release-compliance
     defaults:
       run:
         working-directory: apps/desktop
@@ -67,22 +105,12 @@ jobs:
   publish-release:
     runs-on: ubuntu-latest
     needs:
+      - release-compliance
       - build-python
       - build-desktop-web
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Resolve release tag
-        id: meta
-        run: |
-          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
-            echo "tag=v${{ inputs.release_version }}" >> "$GITHUB_OUTPUT"
-            echo "name=SuperAjan12 v${{ inputs.release_version }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
-            echo "name=SuperAjan12 ${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
-          fi
 
       - name: Download Python artifacts
         uses: actions/download-artifact@v4
@@ -99,8 +127,8 @@ jobs:
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.meta.outputs.tag }}
-          name: ${{ steps.meta.outputs.name }}
+          tag_name: ${{ needs.release-compliance.outputs.tag }}
+          name: ${{ needs.release-compliance.outputs.name }}
           body: |
             Release notes are maintained in `CHANGELOG.md`.
 

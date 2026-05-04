@@ -25,6 +25,7 @@ Required release-entry rules:
 1. Add a new heading for the target version before tagging.
 2. Summarize changes under clear sections such as `Added`, `Changed`, `Fixed`, and `Notes`.
 3. Keep the notes user-facing and operationally meaningful.
+4. Keep the `## [Unreleased]` heading in place for ongoing work.
 
 ## CI expectations
 
@@ -32,10 +33,18 @@ The repository keeps separate validation lanes for:
 
 - installed dependency mode
 - repository runtime-compat mode
+- offline smoke validation
+- release-compliance validation
 - desktop web build
 - desktop Tauri cargo check
 
 A release should not be cut while any required lane is red.
+
+Current required release gate behaviors:
+
+- `scripts/release-compliance.sh` must confirm version parity across Python and desktop surfaces.
+- `scripts/release-compliance.sh` must confirm the target release heading exists in `CHANGELOG.md`.
+- The release workflow must stop before artifact publication if compliance fails.
 
 ## Desktop packaging expectation
 
@@ -54,9 +63,10 @@ Primary path:
 
 1. Update versions across Python and desktop surfaces.
 2. Add the new release section to `CHANGELOG.md`.
-3. Ensure CI is green.
-4. Create tag `vX.Y.Z` and push it, or run the manual workflow with `release_version`.
-5. Review generated GitHub release artifacts.
+3. Run `make release-compliance` locally if possible.
+4. Ensure CI is green, including `smoke` and `release-compliance`.
+5. Create tag `vX.Y.Z` and push it, or run the manual workflow with `release_version`.
+6. Review generated GitHub release artifacts.
 
 The release workflow currently produces:
 
@@ -69,6 +79,7 @@ The release workflow currently produces:
 - `CHANGELOG.md` contains the release notes.
 - `README.md`, `docs/STATUS.md`, and `docs/HANDOFF.md` reflect any changed expectations.
 - CI is green on the release commit.
+- `smoke` and `release-compliance` lanes are green.
 - Desktop bundling expectation is still accurate.
 - Tag matches the aligned version.
 

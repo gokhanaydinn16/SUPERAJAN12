@@ -97,6 +97,16 @@ Ilk asamada canli emir yoktur. Varsayilan mod `paper` modudur.
 
 ## Kurulum
 
+Hizli ve tercih edilen yol:
+
+```bash
+make bootstrap
+make check
+make smoke
+```
+
+Elle kurulum yapmak istersen:
+
 ```bash
 python -m venv .venv
 source .venv/bin/activate
@@ -113,6 +123,31 @@ superajan12 verify-endpoints
 superajan12 reference-check --symbols BTC,ETH,SOL,XRP,DOGE
 superajan12 scan --limit 25
 superajan12 report
+```
+
+## Gelistirici komut haritasi
+
+Gelistirme akisinin tek yerden yonetilmesi icin root `Makefile` eklendi.
+
+```bash
+make bootstrap
+make lint
+make test
+make test-compat
+make check
+make smoke
+make verify-endpoints
+make reference-check
+make run-backend
+make run-web
+```
+
+Ortam kisitliysa fallback yol:
+
+```bash
+make bootstrap-compat
+bash scripts/check.sh compat
+bash scripts/smoke.sh
 ```
 
 Ek guvenlik/ogrenme komutlari:
@@ -158,6 +193,8 @@ PYTHONPATH=src python -m pytest -q
 ```
 
 Bu fallback yol, Python paketleri veya Rust/Node araclari hazir olmadiginda repo icindeki hafif uyumluluk katmani ile backend ve test yuzeyini ayakta tutar.
+
+Daha detayli yerel akis icin: `docs/DEVELOPMENT.md`
 
 ## Local ciktilar
 

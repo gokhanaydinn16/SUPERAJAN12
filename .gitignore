@@ -7,12 +7,21 @@ __pycache__/
 .ruff_cache/
 .venv/
 venv/
+.coverage
+htmlcov/
+build/
+dist/
 
 # Local runtime data
 .env
 data/
 *.sqlite3
 *.db
+
+# Desktop / frontend
+apps/desktop/node_modules/
+apps/desktop/dist/
+apps/desktop/src-tauri/target/
 
 # OS/editor
 .DS_Store
