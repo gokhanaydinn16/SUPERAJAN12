@@ -132,6 +132,7 @@ If any of the following happen, stop scanning and inspect logs:
 - SQLite write failures occur.
 - Audit log is not written.
 - Reconciliation mismatch appears.
+- Secret exposure is suspected.
 
 Immediate actions:
 
@@ -141,6 +142,17 @@ Immediate actions:
 4. Check `.env` settings.
 5. Run tests.
 6. Resume only after root cause is understood.
+
+For secret-related incidents, follow `docs/SECRET_ROTATION_RUNBOOK.md` before resuming any affected provider path.
+
+## Security and compliance references
+
+Read these together before any future live-capable work:
+
+- `docs/SECRET_INVENTORY.md`
+- `docs/SECRET_ROTATION_RUNBOOK.md`
+- `docs/COMPLIANCE_BOUNDARY.md`
+- `docs/PRODUCTION_CHECKLIST.md`
 
 ## Logs and data
 

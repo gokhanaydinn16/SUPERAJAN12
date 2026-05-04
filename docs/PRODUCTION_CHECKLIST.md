@@ -2,6 +2,13 @@
 
 This checklist must be completed before any real-money adapter is added.
 
+Supporting policy docs:
+
+- `docs/SECRET_INVENTORY.md`
+- `docs/SECRET_ROTATION_RUNBOOK.md`
+- `docs/COMPLIANCE_BOUNDARY.md`
+- `docs/RUNBOOK.md`
+
 ## 1. Runtime verification
 
 - [ ] `superajan12 verify-endpoints` passes consistently.
@@ -42,9 +49,10 @@ This checklist must be completed before any real-money adapter is added.
 
 - [ ] No secrets in git.
 - [ ] Secrets are provided by environment or external secret manager.
+- [ ] Secret inventory exists and owners are recorded.
 - [ ] API keys have minimum permissions.
 - [ ] Withdrawal permissions are disabled.
-- [ ] Key rotation plan exists.
+- [ ] Key rotation plan exists and is testable.
 
 ## 6. Legal and platform eligibility
 
@@ -52,6 +60,7 @@ This checklist must be completed before any real-money adapter is added.
 - [ ] No geographic restriction is bypassed.
 - [ ] Terms of service are reviewed.
 - [ ] Tax/reporting obligations are understood.
+- [ ] Compliance boundary is reviewed by the operator.
 
 ## 7. Live adapter gate
 
