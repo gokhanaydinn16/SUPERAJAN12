@@ -76,6 +76,34 @@ jobs:
       - name: Runtime compatibility test
         run: PYTHONPATH=src python -m pytest -q
 
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Offline smoke validation
+        run: make smoke
+
+  release-compliance:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Validate release surface parity
+        run: bash scripts/release-compliance.sh
+
   desktop-web:
     runs-on: ubuntu-latest
     defaults:
