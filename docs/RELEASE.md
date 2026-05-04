@@ -45,6 +45,7 @@ Current required release gate behaviors:
 - `scripts/release-compliance.sh` must confirm version parity across Python and desktop surfaces.
 - `scripts/release-compliance.sh` must confirm the target release heading exists in `CHANGELOG.md`.
 - The release workflow must stop before artifact publication if compliance fails.
+- The release workflow must publish a `SHA256SUMS.txt` manifest for uploaded artifacts.
 
 ## Desktop packaging expectation
 
@@ -62,26 +63,29 @@ Current policy:
 Primary path:
 
 1. Update versions across Python and desktop surfaces.
-2. Add the new release section to `CHANGELOG.md`.
+2. Add the new release section to `CHANGELOG.md` and leave `## [Unreleased]` in place above it.
 3. Run `make release-compliance` locally if possible.
 4. Ensure CI is green, including `smoke` and `release-compliance`.
 5. Create tag `vX.Y.Z` and push it, or run the manual workflow with `release_version`.
-6. Review generated GitHub release artifacts.
+6. Review generated GitHub release artifacts and the checksum manifest.
 
 The release workflow currently produces:
 
 - Python sdist and wheel
 - desktop web `dist/` artifact
+- `SHA256SUMS.txt` checksum manifest for uploaded artifacts
 
 ## Manual release checklist
 
 - Version is aligned everywhere.
 - `CHANGELOG.md` contains the release notes.
+- `CHANGELOG.md` still contains `## [Unreleased]` above the latest release heading.
 - `README.md`, `docs/STATUS.md`, and `docs/HANDOFF.md` reflect any changed expectations.
 - CI is green on the release commit.
 - `smoke` and `release-compliance` lanes are green.
 - Desktop bundling expectation is still accurate.
 - Tag matches the aligned version.
+- Uploaded release assets include the checksum manifest.
 
 ## Non-goals for the current release path
 
