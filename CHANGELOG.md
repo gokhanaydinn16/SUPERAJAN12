@@ -11,11 +11,13 @@ The format is based on Keep a Changelog, and this repository follows semantic ve
 - `scripts/bootstrap.sh`, `scripts/check.sh`, and `scripts/smoke.sh` to make local setup and repeat validation more repeatable.
 - `scripts/release-compliance.sh` to verify version parity and release-heading discipline before publication.
 - `CONTRIBUTING.md`, `docs/DEVELOPMENT.md`, and `.editorconfig` so repo usage and formatting expectations are explicit.
+- A desktop web favicon and manifest so the Vite shell exposes branded browser metadata.
 
 ### Changed
 - Expanded `.gitignore` to cover local build outputs, coverage artifacts, and desktop dependency/build directories.
 - Updated `README.md` with the preferred developer workflow and command map.
 - Added `smoke` and `release-compliance` CI lanes, and made the release workflow stop before publish when version/changelog checks fail.
+- Tauri now points at build-generated raster icon outputs instead of relying on a single SVG-only bundle reference.
 
 ## [0.2.0] - 2026-05-03
 
