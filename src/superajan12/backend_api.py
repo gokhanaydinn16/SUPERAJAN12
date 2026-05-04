@@ -385,10 +385,7 @@ def create_backend_app() -> FastAPI:
         secret_refs = [secret_manager.has_secret(name) for name in required_secret_names]
         secrets_ready = all(secret.present for secret in secret_refs)
         local_open_positions = len(store.list_open_positions())
-        reconciliation = ReconciliationAgent().compare_counts(
-            local_open_positions=local_open_positions,
-            external_open_positions=local_open_positions,
-        )
+        reconciliation = ReconciliationAgent().blocking_placeholder()
         readiness = _build_micro_live_readiness(
             store=store,
             strategy_payload=strategy_payload,

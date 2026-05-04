@@ -25,3 +25,12 @@ class ReconciliationAgent:
                 ),
             )
         return ReconciliationResult(ok=True, reasons=("position counts match",))
+
+    def blocking_placeholder(self) -> ReconciliationResult:
+        return ReconciliationResult(
+            ok=False,
+            reasons=(
+                "live reconciliation is not wired to a real venue yet",
+                "blocking live readiness until external positions and orders are checked",
+            ),
+        )
