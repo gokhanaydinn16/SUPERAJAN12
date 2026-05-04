@@ -94,7 +94,7 @@ fn rounded_rect_alpha(px: f32, py: f32, size: f32, radius: f32) -> f32 {
     let oy = qy.max(0.0);
     let outside = (ox * ox + oy * oy).sqrt();
     let inside = qx.max(qy).min(0.0);
-    smooth_alpha(outside + inside)
+    coverage_from_signed_distance(outside + inside)
 }
 
 fn polyline_alpha(px: f32, py: f32, points: &[[f32; 2]], width: f32, closed: bool) -> f32 {
@@ -119,11 +119,15 @@ fn segment_alpha(px: f32, py: f32, a: [f32; 2], b: [f32; 2], width: f32) -> f32 
     let dx = px - (a[0] + t * vx);
     let dy = py - (a[1] + t * vy);
     let distance = (dx * dx + dy * dy).sqrt();
-    smooth_alpha(width * 0.5 - distance)
+    coverage_from_signed_distance(distance - width * 0.5)
 }
 
-fn smooth_alpha(distance: f32) -> f32 {
-    ((distance + 1.0) / 2.0).clamp(0.0, 1.0)
+fn coverage_from_signed_distance(distance: f32) -> f32 {
+    if distance <= 0.0 {
+        1.0
+    } else {
+        (1.0 - distance).clamp(0.0, 1.0)
+    }
 }
 
 fn mix(start: [f32; 3], end: [f32; 3], t: f32) -> [f32; 3] {
@@ -185,7 +189,6 @@ fn write_chunk(png: &mut Vec<u8>, kind: [u8; 4], data: &[u8]) {
 fn zlib_store(data: &[u8]) -> Vec<u8> {
     let mut out = vec![0x78, 0x01];
     let mut remaining = data;
-    let mut first = true;
     while !remaining.is_empty() {
         let chunk_len = remaining.len().min(65_535);
         let final_flag = if chunk_len == remaining.len() { 1u8 } else { 0u8 };
@@ -194,9 +197,6 @@ fn zlib_store(data: &[u8]) -> Vec<u8> {
         out.extend_from_slice((!(chunk_len as u16)).to_le_bytes().as_slice());
         out.extend_from_slice(&remaining[..chunk_len]);
         remaining = &remaining[chunk_len..];
-        if first {
-            first = false;
-        }
     }
     out.extend_from_slice(&adler32(data).to_be_bytes());
     out
