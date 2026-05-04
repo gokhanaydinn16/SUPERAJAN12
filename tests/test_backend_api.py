@@ -103,6 +103,7 @@ def test_backend_command_center_endpoints_have_expected_shapes() -> None:
     assert "guard" in execution_payload
     assert execution_payload["live_trading"] == "disabled"
     assert execution_payload["reconciliation"]["ok"] is False
+    assert execution_payload["reconciliation"]["code"] == "RECON_NOT_WIRED"
     assert any("not wired" in reason for reason in execution_payload["reconciliation"]["reasons"])
 
     assert system_health.status_code == 200
@@ -230,4 +231,46 @@ def test_execution_operator_acknowledgement_endpoint_persists(tmp_path, monkeypa
     assert operator_ack["acknowledged"] is True
     assert operator_ack["acknowledged_by"] == "test-operator"
     assert operator_ack["note"] == "manual review completed"
+    get_settings.cache_clear()
+
+
+def test_execution_status_emits_deduplicated_reconciliation_blocking_event(tmp_path, monkeypatch) -> None:
+    sqlite_path = tmp_path / "reconciliation.sqlite3"
+    audit_path = tmp_path / "audit.jsonl"
+    monkeypatch.setenv("SQLITE_PATH", str(sqlite_path))
+    monkeypatch.setenv("AUDIT_LOG_PATH", str(audit_path))
+    get_settings.cache_clear()
+
+    client = TestClient(app)
+    baseline_events = client.get("/events").json()["events"]
+    baseline_count = sum(1 for event in baseline_events if event["type"] == "reconciliation.blocking")
+
+    first = client.get("/execution/status")
+    second = client.get("/execution/status")
+    ack = client.post(
+        "/execution/operator-acknowledgement",
+        json={
+            "acknowledged": True,
+            "acknowledged_by": "dedupe-tester",
+            "note": "should not duplicate reconciliation block",
+        },
+    )
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert ack.status_code == 200
+    assert first.json()["reconciliation"]["code"] == "RECON_NOT_WIRED"
+
+    events = client.get("/events").json()["events"]
+    blocking_events = [event for event in events if event["type"] == "reconciliation.blocking"]
+    assert len(blocking_events) == baseline_count + 1
+    latest_payload = blocking_events[-1]["payload"]
+    assert latest_payload["code"] == "RECON_NOT_WIRED"
+    assert latest_payload["local_open_positions"] == 0
+
+    store = SQLiteStore(sqlite_path)
+    veto = store.latest_execution_veto("reconciliation")
+    assert veto is not None
+    assert veto["scope"] == "reconciliation"
+    assert veto["vetoes"][0] == "RECON_NOT_WIRED"
     get_settings.cache_clear()

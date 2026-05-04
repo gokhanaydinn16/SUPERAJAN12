@@ -148,3 +148,26 @@ def test_auto_shadow_mark_uses_latest_market_scores(tmp_path) -> None:
     assert rows[0]["status"] == "marked"
     assert rows[0]["latest_price"] == 0.6
     assert rows[0]["category"] == "crypto"
+
+
+def test_execution_veto_persistence_round_trip(tmp_path) -> None:
+    store = SQLiteStore(tmp_path / "superajan12.sqlite3")
+
+    veto_id = store.record_execution_veto(
+        scope="reconciliation",
+        vetoes=[
+            "RECON_NOT_WIRED",
+            "live reconciliation is not wired to a real venue yet",
+        ],
+    )
+
+    veto = store.latest_execution_veto("reconciliation")
+
+    assert veto_id == 1
+    assert veto is not None
+    assert veto["scope"] == "reconciliation"
+    assert veto["vetoes"] == [
+        "RECON_NOT_WIRED",
+        "live reconciliation is not wired to a real venue yet",
+    ]
+    assert veto["created_at"]
