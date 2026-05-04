@@ -1,0 +1,7 @@
+title = "superajan12 gitleaks config"
+
+[allowlist]
+description = "No repository-wide allowlist entries by default"
+paths = []
+regexes = []
+commits = []

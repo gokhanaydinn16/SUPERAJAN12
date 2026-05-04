@@ -58,6 +58,18 @@ make run-backend
 make run-web
 ```
 
+## Local security gate
+
+Install pre-commit once if you want the same secret leak check before commit that CI now runs:
+
+```bash
+pip install pre-commit
+pre-commit install
+pre-commit run --all-files
+```
+
+This uses `.pre-commit-config.yaml` and `.gitleaks.toml` to scan for accidental secret commits before code leaves your machine.
+
 ## When to use each lane
 
 - `make test`: use when the package is installed into `.venv` and you want the real dependency lane.
