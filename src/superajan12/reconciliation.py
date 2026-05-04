@@ -6,6 +6,7 @@ from dataclasses import dataclass
 @dataclass(frozen=True)
 class ReconciliationResult:
     ok: bool
+    code: str
     reasons: tuple[str, ...]
 
 
@@ -20,15 +21,17 @@ class ReconciliationAgent:
         if local_open_positions != external_open_positions:
             return ReconciliationResult(
                 ok=False,
+                code="RECON_POSITION_MISMATCH",
                 reasons=(
                     f"position count mismatch: local={local_open_positions}, external={external_open_positions}",
                 ),
             )
-        return ReconciliationResult(ok=True, reasons=("position counts match",))
+        return ReconciliationResult(ok=True, code="RECON_OK", reasons=("position counts match",))
 
     def blocking_placeholder(self) -> ReconciliationResult:
         return ReconciliationResult(
             ok=False,
+            code="RECON_NOT_WIRED",
             reasons=(
                 "live reconciliation is not wired to a real venue yet",
                 "blocking live readiness until external positions and orders are checked",
