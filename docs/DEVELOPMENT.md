@@ -70,6 +70,20 @@ pre-commit run --all-files
 
 This uses `.pre-commit-config.yaml` and `.gitleaks.toml` to scan for accidental secret commits before code leaves your machine.
 
+## Dependency audit lane
+
+CI now runs a separate dependency vulnerability lane for both Python and desktop web dependencies.
+
+A close local equivalent is:
+
+```bash
+pip install pip-audit
+pip-audit
+cd apps/desktop && npm install && npm audit --audit-level=high
+```
+
+Use this before opening a PR when dependency versions or lockfile behavior change.
+
 ## When to use each lane
 
 - `make test`: use when the package is installed into `.venv` and you want the real dependency lane.
