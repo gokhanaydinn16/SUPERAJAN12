@@ -224,6 +224,14 @@ Bu dosyalar `.gitignore` icindedir ve repoya yazilmaz.
 - Web paneldeki scan butonu sadece paper/shadow kayit uretir; canli emir gondermez.
 - Faz 1/Faz 2 public-data katmaninda trading/auth endpointleri kullanilmaz.
 
+Guvenlik ve compliance referanslari:
+
+- `docs/SECRET_INVENTORY.md`
+- `docs/SECRET_ROTATION_RUNBOOK.md`
+- `docs/COMPLIANCE_BOUNDARY.md`
+- `docs/PRODUCTION_CHECKLIST.md`
+- `docs/RUNBOOK.md`
+
 ## Endpoint notlari
 
 - Polymarket Gamma API: aktif marketleri bulmak icin `/markets`.
