@@ -35,8 +35,19 @@ SuperAjan12 is ready for paper/shadow operation. It is not a live trading bot an
 27. Runbook and production checklist.
 28. Desktop/backend constrained-runtime fallback path.
 29. Release workflow, changelog, and versioning policy.
+30. Stable local developer entrypoints via Makefile and helper scripts.
 
 ## Main commands
+
+Recommended local entrypoint:
+
+```bash
+make bootstrap
+make check
+make smoke
+```
+
+Core CLI commands:
 
 ```bash
 superajan12 init-db
@@ -57,7 +68,9 @@ superajan12 execution-check --mode paper
 Fallback validation commands when package/toolchain setup is blocked:
 
 ```bash
-PYTHONPATH=src python -m pytest -q
+make bootstrap-compat
+bash scripts/check.sh compat
+bash scripts/smoke.sh
 PYTHONPATH=src python -m superajan12.backend_server --host 127.0.0.1 --port 8000
 ```
 
