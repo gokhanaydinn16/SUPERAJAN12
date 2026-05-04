@@ -17,6 +17,7 @@ fn ensure_release_icon_assets() {
 
     write_icon(generated_dir.join("icon.png"), &png_bytes);
     write_icon(generated_dir.join("icon.ico"), &write_ico(&png_bytes));
+    write_icon(generated_dir.join("icon.icns"), &write_icns(&png_bytes));
 }
 
 fn write_icon(path: impl AsRef<Path>, bytes: &[u8]) {
@@ -236,4 +237,19 @@ fn write_ico(png_bytes: &[u8]) -> Vec<u8> {
     ico.extend_from_slice(&(6u32 + 16u32).to_le_bytes());
     ico.extend_from_slice(png_bytes);
     ico
+}
+
+fn write_icns(png_bytes: &[u8]) -> Vec<u8> {
+    // A single 256x256 PNG is sufficient for the current desktop check and
+    // gives Tauri a deterministic macOS bundle icon payload.
+    let element_len = 8 + png_bytes.len() as u32;
+    let total_len = 8 + element_len;
+
+    let mut icns = Vec::with_capacity(total_len as usize);
+    icns.extend_from_slice(b"icns");
+    icns.extend_from_slice(&total_len.to_be_bytes());
+    icns.extend_from_slice(b"ic08");
+    icns.extend_from_slice(&element_len.to_be_bytes());
+    icns.extend_from_slice(png_bytes);
+    icns
 }
