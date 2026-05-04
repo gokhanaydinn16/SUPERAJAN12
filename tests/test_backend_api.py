@@ -102,6 +102,8 @@ def test_backend_command_center_endpoints_have_expected_shapes() -> None:
     assert "secrets" in execution_payload
     assert "guard" in execution_payload
     assert execution_payload["live_trading"] == "disabled"
+    assert execution_payload["reconciliation"]["ok"] is False
+    assert any("not wired" in reason for reason in execution_payload["reconciliation"]["reasons"])
 
     assert system_health.status_code == 200
     system_payload = system_health.json()
