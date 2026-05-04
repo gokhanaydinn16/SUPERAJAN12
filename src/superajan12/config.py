@@ -18,6 +18,9 @@ class Settings(BaseSettings):
 
     env: str = Field(default="local", validation_alias="SUPERAJAN_ENV")
     mode: Literal["paper", "shadow", "live"] = Field(default="paper", validation_alias="SUPERAJAN_MODE")
+    capital_stage: Literal["paper", "shadow", "testnet", "canary", "scaled_live"] = Field(
+        default="paper", validation_alias="SUPERAJAN_CAPITAL_STAGE"
+    )
     log_level: str = Field(default="INFO", validation_alias="SUPERAJAN_LOG_LEVEL")
 
     polymarket_gamma_base_url: AnyHttpUrl = Field(
