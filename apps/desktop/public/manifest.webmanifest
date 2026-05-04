@@ -1,0 +1,16 @@
+{
+  "name": "SuperAjan12 Desktop",
+  "short_name": "SuperAjan12",
+  "description": "Desktop command center for the SuperAjan12 paper and shadow operations stack.",
+  "theme_color": "#0f172a",
+  "background_color": "#0f172a",
+  "display": "standalone",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
