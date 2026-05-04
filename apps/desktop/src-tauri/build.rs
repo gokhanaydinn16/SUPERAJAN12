@@ -1,7 +1,7 @@
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-const ICON_SIZE: usize = 512;
+const ICON_SIZE: usize = 256;
 
 fn main() {
     ensure_release_icon_assets();
@@ -15,14 +15,11 @@ fn ensure_release_icon_assets() {
     let rgba = render_icon(ICON_SIZE);
     let png_bytes = write_png(ICON_SIZE as u32, ICON_SIZE as u32, &rgba);
 
-    write_if_missing(generated_dir.join("icon.png"), &png_bytes);
-    write_if_missing(generated_dir.join("icon.ico"), &write_ico(&png_bytes));
+    write_icon(generated_dir.join("icon.png"), &png_bytes);
+    write_icon(generated_dir.join("icon.ico"), &write_ico(&png_bytes));
 }
 
-fn write_if_missing(path: PathBuf, bytes: &[u8]) {
-    if path.exists() {
-        return;
-    }
+fn write_icon(path: impl AsRef<Path>, bytes: &[u8]) {
     fs::write(path, bytes).expect("failed to write generated icon asset");
 }
 
@@ -98,7 +95,7 @@ fn rounded_rect_alpha(px: f32, py: f32, size: f32, radius: f32) -> f32 {
 }
 
 fn polyline_alpha(px: f32, py: f32, points: &[[f32; 2]], width: f32, closed: bool) -> f32 {
-    let mut best = 0.0;
+    let mut best: f32 = 0.0;
     for window in points.windows(2) {
         best = best.max(segment_alpha(px, py, window[0], window[1], width));
     }
