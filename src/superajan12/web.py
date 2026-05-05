@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from typing import Any
 
 import uvicorn
@@ -11,15 +12,23 @@ from superajan12.config import get_settings
 from superajan12.endpoint_check import verify_polymarket_public_endpoints
 from superajan12.reporting import Reporter
 from superajan12.runtime import (
+    bootstrap_runtime,
     build_polymarket_client,
     build_risk_engine,
     build_scan_response,
-    ensure_runtime_paths,
     persist_scan_result,
+    runtime_settings,
 )
 from superajan12.storage import SQLiteStore
 
-app = FastAPI(title="SuperAjan12", version="0.1.0")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    app.state.runtime_settings = bootstrap_runtime(get_settings())
+    yield
+
+
+app = FastAPI(title="SuperAjan12", version="0.1.0", lifespan=lifespan)
 
 
 INDEX_HTML = """
@@ -223,7 +232,7 @@ def index() -> str:
 
 @app.get("/api/dashboard")
 def dashboard(top: int = Query(default=20, ge=1, le=100)) -> dict[str, Any]:
-    settings = ensure_runtime_paths()
+    settings = runtime_settings()
     store = SQLiteStore(settings.sqlite_path)
     reporter = Reporter(settings.sqlite_path)
     return {
@@ -238,7 +247,7 @@ def dashboard(top: int = Query(default=20, ge=1, le=100)) -> dict[str, Any]:
 
 @app.post("/api/scan")
 async def scan(limit: int = Query(default=25, ge=1, le=100)) -> dict[str, Any]:
-    settings = ensure_runtime_paths()
+    settings = runtime_settings()
     scanner = MarketScannerAgent(
         polymarket=build_polymarket_client(settings),
         risk_engine=build_risk_engine(settings),
@@ -255,7 +264,6 @@ async def verify_endpoints() -> dict[str, Any]:
 
 
 def main() -> None:
-    ensure_runtime_paths(get_settings())
     uvicorn.run("superajan12.web:app", host="127.0.0.1", port=8000, reload=False)
 
 
