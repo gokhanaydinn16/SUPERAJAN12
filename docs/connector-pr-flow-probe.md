@@ -6,3 +6,4 @@ Purpose:
 - verify branch creation
 - verify file write on non-default branch
 - verify draft PR creation path
+- verify update_file operation on same branch
