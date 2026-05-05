@@ -1,7 +1,10 @@
+import asyncio
+
 from fastapi.testclient import TestClient
 
 from superajan12.backend_api import app
 from superajan12.config import get_settings
+from superajan12.events import EventBus
 from superajan12.storage import SQLiteStore
 from superajan12.strategy import StrategyScore
 
@@ -332,3 +335,63 @@ def test_prepare_execution_intent_does_not_persist_when_guard_fails(tmp_path, mo
     assert response.status_code == 409
     assert client.get("/execution/intents").json()["intents"] == []
     get_settings.cache_clear()
+
+
+def test_event_bus_periodic_publisher_deduplicates_loops() -> None:
+    async def scenario() -> None:
+        bus = EventBus(max_queue_size=200)
+        state = {"count": 0}
+
+        def payload_factory() -> dict[str, int]:
+            state["count"] += 1
+            return {"tick": state["count"]}
+
+        first = await bus.ensure_periodic_publisher(
+            "health.snapshot",
+            event_type="health.snapshot",
+            payload_factory=payload_factory,
+            interval_seconds=0.02,
+            publish_immediately=True,
+        )
+        second = await bus.ensure_periodic_publisher(
+            "health.snapshot",
+            event_type="health.snapshot",
+            payload_factory=payload_factory,
+            interval_seconds=0.02,
+            publish_immediately=True,
+        )
+
+        assert first is True
+        assert second is False
+
+        await asyncio.sleep(0.07)
+        history = [event for event in bus.history(limit=100) if event["type"] == "health.snapshot"]
+        assert len(history) >= 2
+
+        stopped = await bus.stop_periodic_publisher("health.snapshot")
+        assert stopped is True
+
+    asyncio.run(scenario())
+
+
+def test_event_bus_stop_all_periodic_publishers() -> None:
+    async def scenario() -> None:
+        bus = EventBus(max_queue_size=200)
+
+        async def payload_factory() -> dict[str, str]:
+            return {"state": "ok"}
+
+        created = await bus.ensure_periodic_publisher(
+            "system.health",
+            event_type="system.health.snapshot",
+            payload_factory=payload_factory,
+            interval_seconds=0.02,
+            publish_immediately=False,
+        )
+        assert created is True
+        assert bus.periodic_publisher_names() == ["system.health"]
+
+        await bus.stop_all_periodic_publishers()
+        assert bus.periodic_publisher_names() == []
+
+    asyncio.run(scenario())
