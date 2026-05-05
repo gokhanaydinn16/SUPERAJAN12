@@ -68,8 +68,7 @@ class EventBus:
     def subscribe(self, *, event_types: list[str] | set[str] | tuple[str, ...] | None = None) -> asyncio.Queue[EventEnvelope]:
         queue: asyncio.Queue[EventEnvelope] = asyncio.Queue(maxsize=100)
         self._subscribers.add(queue)
-        normalized = None if event_types is None else {str(item) for item in event_types if str(item)}
-        self._subscriber_filters[queue] = normalized
+        self._subscriber_filters[queue] = _normalize_event_types(event_types=event_types)
         return queue
 
     def unsubscribe(self, queue: asyncio.Queue[EventEnvelope]) -> None:
@@ -187,14 +186,15 @@ async def _resolve_payload(payload_factory: PayloadFactory) -> dict[str, Any]:
 
 def _normalize_event_types(
     *,
-    event_type: str | None,
-    event_types: list[str] | set[str] | tuple[str, ...] | None,
+    event_type: str | None = None,
+    event_types: list[str] | set[str] | tuple[str, ...] | None = None,
 ) -> set[str] | None:
     normalized: set[str] = set()
     if event_type:
-        normalized.add(str(event_type))
+        normalized.update(part for part in str(event_type).split(",") if part)
     if event_types is not None:
-        normalized.update(str(item) for item in event_types if str(item))
+        for item in event_types:
+            normalized.update(part for part in str(item).split(",") if part)
     return normalized or None
 
 
