@@ -139,6 +139,25 @@ jobs:
       - name: Offline smoke validation
         run: make smoke
 
+  replay-market-state:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install package
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .[dev]
+
+      - name: Replay and market-state regression lane
+        run: pytest -q tests/test_orderbook_replay.py tests/test_market_state.py
+
   release-compliance:
     runs-on: ubuntu-latest
     steps:
