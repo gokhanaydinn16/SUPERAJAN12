@@ -27,6 +27,17 @@ def test_event_bus_history_filters_by_multiple_event_types() -> None:
     assert [event["type"] for event in filtered] == ["risk.snapshot", "scan.completed", "risk.snapshot"]
 
 
+def test_event_bus_history_supports_comma_separated_event_types() -> None:
+    bus = EventBus(max_queue_size=20)
+    bus.publish("scan.started", {"seq": 1})
+    bus.publish("scan.completed", {"seq": 2})
+    bus.publish("risk.snapshot", {"seq": 3})
+
+    filtered = bus.history(limit=10, event_type="scan.started,scan.completed")
+
+    assert [event["type"] for event in filtered] == ["scan.started", "scan.completed"]
+
+
 def test_event_bus_subscription_filters_event_types() -> None:
     bus = EventBus(max_queue_size=20)
     all_events = bus.subscribe()
@@ -42,3 +53,16 @@ def test_event_bus_subscription_filters_event_types() -> None:
     assert [first_all["type"], second_all["type"]] == ["scan.started", "risk.snapshot"]
     assert only_risk["type"] == "risk.snapshot"
     assert only_risk["payload"]["seq"] == 2
+
+
+def test_event_bus_subscription_supports_comma_separated_types() -> None:
+    bus = EventBus(max_queue_size=20)
+    filtered = bus.subscribe(event_types={"scan.started,scan.completed"})
+
+    bus.publish("scan.started", {"seq": 1})
+    bus.publish("risk.snapshot", {"seq": 2})
+    bus.publish("scan.completed", {"seq": 3})
+
+    first = filtered.get_nowait().to_dict()
+    second = filtered.get_nowait().to_dict()
+    assert [first["type"], second["type"]] == ["scan.started", "scan.completed"]
