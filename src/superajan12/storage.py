@@ -191,6 +191,34 @@ class SQLiteStore:
                     veto_json TEXT NOT NULL,
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
                 );
+
+                CREATE TABLE IF NOT EXISTS order_intents (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    intent_id TEXT NOT NULL UNIQUE,
+                    idempotency_key TEXT NOT NULL UNIQUE,
+                    status TEXT NOT NULL,
+                    market_id TEXT NOT NULL,
+                    side TEXT NOT NULL,
+                    price REAL NOT NULL,
+                    size REAL NOT NULL,
+                    dry_run INTEGER NOT NULL DEFAULT 1,
+                    cancel_on_disconnect INTEGER NOT NULL DEFAULT 0,
+                    stale_after_seconds REAL,
+                    session_id TEXT,
+                    guard_reasons_json TEXT NOT NULL,
+                    approval_required INTEGER NOT NULL DEFAULT 1,
+                    requested_by TEXT NOT NULL DEFAULT 'system',
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
+
+                CREATE TABLE IF NOT EXISTS execution_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    intent_id TEXT NOT NULL,
+                    event_type TEXT NOT NULL,
+                    payload_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
                 """
             )
             for table, column, ddl in (
@@ -223,6 +251,8 @@ class SQLiteStore:
                 ("paper_trade_ideas", "edge", "REAL"),
                 ("paper_positions", "category", "TEXT"),
                 ("execution_sessions", "open_order_count", "INTEGER NOT NULL DEFAULT 0"),
+                ("order_intents", "session_id", "TEXT"),
+                ("order_intents", "stale_after_seconds", "REAL"),
             ):
                 self._ensure_column(conn, table, column, ddl)
 
@@ -725,6 +755,154 @@ class SQLiteStore:
             result["vetoes"] = json.loads(str(result.pop("veto_json") or "[]"))
             return result
 
+    def create_order_intent(
+        self,
+        *,
+        intent_id: str,
+        idempotency_key: str,
+        status: str,
+        market_id: str,
+        side: str,
+        price: float,
+        size: float,
+        dry_run: bool,
+        cancel_on_disconnect: bool,
+        stale_after_seconds: float | None,
+        session_id: str | None,
+        guard_reasons: tuple[str, ...] | list[str],
+        approval_required: bool,
+        requested_by: str,
+    ) -> dict[str, object]:
+        existing = self.get_order_intent_by_idempotency_key(idempotency_key)
+        if existing is not None:
+            self._assert_matching_order_intent(
+                existing=existing,
+                market_id=market_id,
+                side=side,
+                price=price,
+                size=size,
+            )
+            return existing
+
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO order_intents (
+                    intent_id, idempotency_key, status, market_id, side, price, size,
+                    dry_run, cancel_on_disconnect, stale_after_seconds, session_id,
+                    guard_reasons_json, approval_required, requested_by
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    intent_id,
+                    idempotency_key,
+                    status,
+                    market_id,
+                    side,
+                    price,
+                    size,
+                    1 if dry_run else 0,
+                    1 if cancel_on_disconnect else 0,
+                    stale_after_seconds,
+                    session_id,
+                    json.dumps(list(guard_reasons), ensure_ascii=False),
+                    1 if approval_required else 0,
+                    requested_by,
+                ),
+            )
+        intent = self.get_order_intent_by_idempotency_key(idempotency_key)
+        if intent is None:
+            raise RuntimeError("order intent was not persisted")
+        return intent
+
+    def get_order_intent_by_idempotency_key(self, idempotency_key: str) -> dict[str, object] | None:
+        with self.connect() as conn:
+            conn.row_factory = sqlite3.Row
+            row = conn.execute(
+                """
+                SELECT id, intent_id, idempotency_key, status, market_id, side, price, size,
+                       dry_run, cancel_on_disconnect, stale_after_seconds, session_id,
+                       guard_reasons_json, approval_required, requested_by, created_at, updated_at
+                FROM order_intents
+                WHERE idempotency_key = ?
+                LIMIT 1
+                """,
+                (idempotency_key,),
+            ).fetchone()
+            if row is None:
+                return None
+            return self._decode_order_intent_row(dict(row))
+
+    def list_order_intents(self, *, limit: int = 20, status: str | None = None) -> list[dict[str, object]]:
+        with self.connect() as conn:
+            conn.row_factory = sqlite3.Row
+            if status is None:
+                rows = conn.execute(
+                    """
+                    SELECT id, intent_id, idempotency_key, status, market_id, side, price, size,
+                           dry_run, cancel_on_disconnect, stale_after_seconds, session_id,
+                           guard_reasons_json, approval_required, requested_by, created_at, updated_at
+                    FROM order_intents
+                    ORDER BY id DESC
+                    LIMIT ?
+                    """,
+                    (limit,),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """
+                    SELECT id, intent_id, idempotency_key, status, market_id, side, price, size,
+                           dry_run, cancel_on_disconnect, stale_after_seconds, session_id,
+                           guard_reasons_json, approval_required, requested_by, created_at, updated_at
+                    FROM order_intents
+                    WHERE status = ?
+                    ORDER BY id DESC
+                    LIMIT ?
+                    """,
+                    (status, limit),
+                ).fetchall()
+            return [self._decode_order_intent_row(dict(row)) for row in rows]
+
+    def record_execution_event(self, *, intent_id: str, event_type: str, payload: dict[str, object]) -> int:
+        with self.connect() as conn:
+            cursor = conn.execute(
+                """
+                INSERT INTO execution_events (intent_id, event_type, payload_json)
+                VALUES (?, ?, ?)
+                """,
+                (intent_id, event_type, json.dumps(payload, ensure_ascii=False, sort_keys=True)),
+            )
+            return int(cursor.lastrowid)
+
+    def list_execution_events(self, *, intent_id: str | None = None, limit: int = 50) -> list[dict[str, object]]:
+        with self.connect() as conn:
+            conn.row_factory = sqlite3.Row
+            if intent_id is None:
+                rows = conn.execute(
+                    """
+                    SELECT id, intent_id, event_type, payload_json, created_at
+                    FROM execution_events
+                    ORDER BY id DESC
+                    LIMIT ?
+                    """,
+                    (limit,),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """
+                    SELECT id, intent_id, event_type, payload_json, created_at
+                    FROM execution_events
+                    WHERE intent_id = ?
+                    ORDER BY id DESC
+                    LIMIT ?
+                    """,
+                    (intent_id, limit),
+                ).fetchall()
+            items = [dict(row) for row in rows]
+            for item in items:
+                item["payload"] = json.loads(str(item.pop("payload_json") or "{}"))
+            return items
+
     def _insert_scores(self, conn: sqlite3.Connection, scan_id: int, scores: Iterable[MarketScore]) -> None:
         conn.executemany(
             """
@@ -833,6 +1011,30 @@ class SQLiteStore:
                 for position in positions
             ],
         )
+
+    def _decode_order_intent_row(self, row: dict[str, object]) -> dict[str, object]:
+        row["dry_run"] = bool(row.get("dry_run"))
+        row["cancel_on_disconnect"] = bool(row.get("cancel_on_disconnect"))
+        row["approval_required"] = bool(row.get("approval_required"))
+        row["guard_reasons"] = json.loads(str(row.pop("guard_reasons_json") or "[]"))
+        return row
+
+    def _assert_matching_order_intent(
+        self,
+        *,
+        existing: dict[str, object],
+        market_id: str,
+        side: str,
+        price: float,
+        size: float,
+    ) -> None:
+        if (
+            str(existing.get("market_id") or "") != market_id
+            or str(existing.get("side") or "") != side
+            or float(existing.get("price") or 0.0) != price
+            or float(existing.get("size") or 0.0) != size
+        ):
+            raise ValueError("idempotency key already used for a different execution intent payload")
 
     def _ensure_column(self, conn: sqlite3.Connection, table: str, column: str, ddl: str) -> None:
         columns = {row[1] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
