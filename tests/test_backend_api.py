@@ -274,3 +274,61 @@ def test_execution_status_emits_deduplicated_reconciliation_blocking_event(tmp_p
     assert veto["scope"] == "reconciliation"
     assert veto["vetoes"][0] == "RECON_NOT_WIRED"
     get_settings.cache_clear()
+
+
+def test_prepare_execution_intent_is_idempotent(tmp_path, monkeypatch) -> None:
+    sqlite_path = tmp_path / "intents.sqlite3"
+    audit_path = tmp_path / "audit.jsonl"
+    monkeypatch.setenv("SQLITE_PATH", str(sqlite_path))
+    monkeypatch.setenv("AUDIT_LOG_PATH", str(audit_path))
+    get_settings.cache_clear()
+
+    client = TestClient(app)
+    request = {
+        "market_id": "m1",
+        "side": "YES",
+        "price": 0.51,
+        "size": 10.0,
+        "idempotency_key": "idem-prepare-1",
+        "requested_by": "test-suite",
+        "force_guard": True,
+    }
+
+    first = client.post("/execution/intents/prepare", json=request)
+    second = client.post("/execution/intents/prepare", json=request)
+    intents = client.get("/execution/intents").json()["intents"]
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.json()["reused"] is False
+    assert second.json()["reused"] is True
+    assert first.json()["intent"]["intent_id"] == second.json()["intent"]["intent_id"]
+    assert len(intents) == 1
+    assert intents[0]["status"] == "prepared"
+    assert second.json()["events"][0]["event_type"] == "execution.intent.prepared"
+    get_settings.cache_clear()
+
+
+def test_prepare_execution_intent_does_not_persist_when_guard_fails(tmp_path, monkeypatch) -> None:
+    sqlite_path = tmp_path / "guarded.sqlite3"
+    audit_path = tmp_path / "audit.jsonl"
+    monkeypatch.setenv("SQLITE_PATH", str(sqlite_path))
+    monkeypatch.setenv("AUDIT_LOG_PATH", str(audit_path))
+    get_settings.cache_clear()
+
+    client = TestClient(app)
+    response = client.post(
+        "/execution/intents/prepare",
+        json={
+            "market_id": "m1",
+            "side": "YES",
+            "price": 0.51,
+            "size": 10.0,
+            "idempotency_key": "idem-guard-fail",
+            "requested_by": "test-suite",
+        },
+    )
+
+    assert response.status_code == 409
+    assert client.get("/execution/intents").json()["intents"] == []
+    get_settings.cache_clear()
