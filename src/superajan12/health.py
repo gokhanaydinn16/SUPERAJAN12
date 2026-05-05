@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import os
-from time import perf_counter
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any
+from time import perf_counter
+from typing import Any, Mapping
 
 from superajan12.config import Settings, get_settings
 from superajan12.connectors.binance import BinanceFuturesClient
@@ -31,6 +31,7 @@ class SourceHealth:
     status: SourceStatus
     last_ok_at: datetime | None = None
     last_error_at: datetime | None = None
+    last_probe_at: datetime | None = None
     latency_ms: float | None = None
     stale_after_seconds: int = 60
     error: str | None = None
@@ -40,7 +41,7 @@ class SourceHealth:
 
     @property
     def is_usable(self) -> bool:
-        return self.status is SourceStatus.LIVE
+        return self.status in {SourceStatus.LIVE, SourceStatus.STALE}
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -48,6 +49,7 @@ class SourceHealth:
             "status": self.status.value,
             "last_ok_at": self.last_ok_at.isoformat() if self.last_ok_at else None,
             "last_error_at": self.last_error_at.isoformat() if self.last_error_at else None,
+            "last_probe_at": self.last_probe_at.isoformat() if self.last_probe_at else None,
             "latency_ms": self.latency_ms,
             "stale_after_seconds": self.stale_after_seconds,
             "error": self.error,
@@ -60,8 +62,8 @@ class SourceHealth:
 class SourceHealthRegistry:
     """In-memory source health registry for the desktop/backend runtime.
 
-    This is the first runtime health layer. It avoids fake UI data by making every
-    source explicit: live, stale, offline, error, loading, or not configured.
+    This registry models degradations explicitly so runtime can remain healthy even
+    when external providers are temporarily unreachable.
     """
 
     def __init__(self, circuit_open_after_failures: int = 3) -> None:
@@ -69,9 +71,11 @@ class SourceHealthRegistry:
         self._circuit_open_after_failures = circuit_open_after_failures
 
     def set_not_configured(self, name: str, reason: str | None = None) -> SourceHealth:
+        now = datetime.now(timezone.utc)
         health = SourceHealth(
             name=name,
             status=SourceStatus.NOT_CONFIGURED,
+            last_probe_at=now,
             metadata={"reason": reason} if reason else {},
         )
         self._sources[name] = health
@@ -79,11 +83,13 @@ class SourceHealthRegistry:
 
     def set_loading(self, name: str) -> SourceHealth:
         previous = self._sources.get(name)
+        now = datetime.now(timezone.utc)
         health = SourceHealth(
             name=name,
             status=SourceStatus.LOADING,
             last_ok_at=previous.last_ok_at if previous else None,
             last_error_at=previous.last_error_at if previous else None,
+            last_probe_at=now,
             latency_ms=previous.latency_ms if previous else None,
             stale_after_seconds=previous.stale_after_seconds if previous else 60,
             error=None,
@@ -102,12 +108,14 @@ class SourceHealthRegistry:
     ) -> SourceHealth:
         previous = self._sources.get(name)
         metadata = metadata or {}
+        now = datetime.now(timezone.utc)
         stale_after_seconds = int(metadata.get("stale_after_seconds") or (previous.stale_after_seconds if previous else 60))
         health = SourceHealth(
             name=name,
             status=SourceStatus.LIVE,
-            last_ok_at=datetime.now(timezone.utc),
+            last_ok_at=now,
             last_error_at=previous.last_error_at if previous else None,
+            last_probe_at=now,
             latency_ms=latency_ms,
             stale_after_seconds=stale_after_seconds,
             error=None,
@@ -127,18 +135,20 @@ class SourceHealthRegistry:
         metadata: dict[str, Any] | None = None,
     ) -> SourceHealth:
         previous = self._sources.get(name)
-        metadata = metadata or (previous.metadata if previous else {})
+        now = datetime.now(timezone.utc)
+        merged_metadata = metadata or (previous.metadata if previous else {})
         health = SourceHealth(
             name=name,
             status=SourceStatus.STALE,
-            last_ok_at=previous.last_ok_at if previous else datetime.now(timezone.utc),
+            last_ok_at=previous.last_ok_at if previous else None,
             last_error_at=previous.last_error_at if previous else None,
+            last_probe_at=now,
             latency_ms=latency_ms,
-            stale_after_seconds=previous.stale_after_seconds if previous else 60,
+            stale_after_seconds=previous.stale_after_seconds if previous else int(merged_metadata.get("stale_after_seconds", 60)),
             error=reason,
             failure_count=previous.failure_count if previous else 0,
             circuit_breaker=previous.circuit_breaker if previous else "closed",
-            metadata=metadata,
+            metadata=merged_metadata,
         )
         self._sources[name] = health
         return health
@@ -146,11 +156,13 @@ class SourceHealthRegistry:
     def set_error(self, name: str, error: str) -> SourceHealth:
         previous = self._sources.get(name)
         failure_count = (previous.failure_count if previous else 0) + 1
+        now = datetime.now(timezone.utc)
         health = SourceHealth(
             name=name,
             status=SourceStatus.ERROR,
             last_ok_at=previous.last_ok_at if previous else None,
-            last_error_at=datetime.now(timezone.utc),
+            last_error_at=now,
+            last_probe_at=now,
             latency_ms=previous.latency_ms if previous else None,
             stale_after_seconds=previous.stale_after_seconds if previous else 60,
             error=error,
@@ -164,11 +176,13 @@ class SourceHealthRegistry:
     def set_offline(self, name: str, reason: str | None = None) -> SourceHealth:
         previous = self._sources.get(name)
         failure_count = (previous.failure_count if previous else 0) + 1 if reason else (previous.failure_count if previous else 0)
+        now = datetime.now(timezone.utc)
         health = SourceHealth(
             name=name,
             status=SourceStatus.OFFLINE,
             last_ok_at=previous.last_ok_at if previous else None,
-            last_error_at=datetime.now(timezone.utc) if reason else previous.last_error_at if previous else None,
+            last_error_at=now if reason else (previous.last_error_at if previous else None),
+            last_probe_at=now,
             latency_ms=previous.latency_ms if previous else None,
             stale_after_seconds=previous.stale_after_seconds if previous else 60,
             error=reason,
@@ -206,26 +220,73 @@ def build_default_health_registry() -> SourceHealthRegistry:
     return registry
 
 
-async def build_live_health_registry(settings: Settings | None = None) -> SourceHealthRegistry:
+async def build_live_health_registry(
+    settings: Settings | None = None,
+    *,
+    probe_network: bool = True,
+    runtime_metadata: Mapping[str, Any] | None = None,
+) -> SourceHealthRegistry:
     settings = settings or get_settings()
     registry = SourceHealthRegistry()
 
-    probe_results = await asyncio.gather(
-        _probe_polymarket_gamma(settings),
-        _probe_polymarket_clob(settings),
-        _probe_kalshi(settings),
-        _probe_binance(settings),
-        _probe_okx(settings),
-        _probe_coinbase(settings),
-    )
+    if probe_network:
+        probe_results = await asyncio.gather(
+            _probe_polymarket_gamma(settings),
+            _probe_polymarket_clob(settings),
+            _probe_kalshi(settings),
+            _probe_binance(settings),
+            _probe_okx(settings),
+            _probe_coinbase(settings),
+        )
 
-    for name, ok, latency_ms, metadata, error in probe_results:
-        if ok and _should_mark_stale(latency_ms, metadata):
-            registry.set_stale(name, latency_ms=latency_ms, reason="latency budget exceeded", metadata=metadata)
-        elif ok:
-            registry.set_live(name, latency_ms=latency_ms, metadata=metadata)
-        else:
-            registry.set_error(name, error or "health probe failed")
+        runtime_ready = _runtime_is_ready(runtime_metadata)
+        for name, ok, latency_ms, metadata, error in probe_results:
+            if ok and _should_mark_stale(latency_ms, metadata):
+                registry.set_stale(name, latency_ms=latency_ms, reason="latency budget exceeded", metadata=metadata)
+                continue
+            if ok:
+                registry.set_live(name, latency_ms=latency_ms, metadata=metadata)
+                continue
+
+            fallback_metadata = _merge_metadata(
+                metadata,
+                {
+                    "degraded": runtime_ready,
+                    "degraded_reason": "provider_unreachable",
+                    "probe_mode": "network",
+                },
+            )
+            if runtime_ready:
+                registry.set_stale(
+                    name,
+                    latency_ms=latency_ms,
+                    reason=error or "provider probe failed",
+                    metadata=fallback_metadata,
+                )
+            else:
+                registry.set_error(name, error or "health probe failed")
+    else:
+        for source, stale_after_seconds in (
+            ("polymarket_gamma", 90),
+            ("polymarket_clob", 45),
+            ("kalshi", 120),
+            ("binance_futures", 30),
+            ("okx", 30),
+            ("coinbase", 30),
+        ):
+            registry.set_stale(
+                source,
+                reason="network probe skipped (runtime mode)",
+                metadata=_merge_metadata(
+                    {
+                        "stale_after_seconds": stale_after_seconds,
+                    },
+                    {
+                        "degraded": True,
+                        "probe_mode": "runtime_only",
+                    },
+                ),
+            )
 
     for source, env_name in (
         ("dune", "DUNE_API_KEY"),
@@ -238,6 +299,21 @@ async def build_live_health_registry(settings: Settings | None = None) -> Source
             registry.set_not_configured(source, reason=f"{env_name} missing")
 
     return registry
+
+
+def _runtime_is_ready(runtime_metadata: Mapping[str, Any] | None) -> bool:
+    if not runtime_metadata:
+        return False
+    return bool(runtime_metadata.get("ready"))
+
+
+def _merge_metadata(base: Mapping[str, Any] | None, extra: Mapping[str, Any] | None) -> dict[str, Any]:
+    data: dict[str, Any] = {}
+    if base:
+        data.update(dict(base))
+    if extra:
+        data.update(dict(extra))
+    return data
 
 
 def _should_mark_stale(latency_ms: float | None, metadata: dict[str, Any]) -> bool:
