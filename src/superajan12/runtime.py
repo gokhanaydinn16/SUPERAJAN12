@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from superajan12.agents.reference import CryptoReferenceAgent
@@ -10,6 +11,7 @@ from superajan12.connectors.binance import BinanceFuturesClient
 from superajan12.connectors.coinbase import CoinbasePublicClient
 from superajan12.connectors.okx import OKXPublicClient
 from superajan12.connectors.polymarket import PolymarketClient
+from superajan12.health import SourceStatus, build_live_health_registry
 from superajan12.models import ScanResult
 from superajan12.storage import SQLiteStore
 
@@ -19,6 +21,42 @@ def ensure_runtime_paths(settings: Settings | None = None) -> Settings:
     SQLiteStore(settings.sqlite_path)
     settings.audit_log_path.parent.mkdir(parents=True, exist_ok=True)
     return settings
+
+
+def runtime_readiness(settings: Settings | None = None) -> dict[str, Any]:
+    settings = ensure_runtime_paths(settings)
+    sqlite_writable = _is_writable_path(settings.sqlite_path)
+    audit_writable = _is_writable_path(settings.audit_log_path)
+    ready = sqlite_writable and audit_writable
+    return {
+        "ready": ready,
+        "sqlite_path": str(settings.sqlite_path),
+        "sqlite_writable": sqlite_writable,
+        "audit_log_path": str(settings.audit_log_path),
+        "audit_log_writable": audit_writable,
+    }
+
+
+async def build_runtime_health_snapshot(
+    settings: Settings | None = None,
+    *,
+    probe_network: bool = False,
+) -> dict[str, Any]:
+    settings = ensure_runtime_paths(settings)
+    runtime = runtime_readiness(settings)
+    registry = await build_live_health_registry(
+        settings,
+        probe_network=probe_network,
+        runtime_metadata=runtime,
+    )
+    sources = registry.snapshot()
+    status_counts = _count_by_status(sources)
+    return {
+        "status": _derive_overall_status(runtime_ready=runtime["ready"], status_counts=status_counts),
+        "runtime": runtime,
+        "status_counts": status_counts,
+        "sources": sources,
+    }
 
 
 def build_polymarket_client(settings: Settings | None = None) -> PolymarketClient:
@@ -76,3 +114,33 @@ def build_scan_response(result: ScanResult, scan_id: int) -> dict[str, Any]:
         "idea_count": len(result.ideas),
         "paper_position_count": len(result.paper_positions),
     }
+
+
+def _is_writable_path(path: Path) -> bool:
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8"):
+            pass
+        return True
+    except OSError:
+        return False
+
+
+def _count_by_status(sources: list[dict[str, Any]]) -> dict[str, int]:
+    counts: dict[str, int] = {status.value: 0 for status in SourceStatus}
+    for source in sources:
+        status = str(source.get("status"))
+        counts[status] = counts.get(status, 0) + 1
+    return counts
+
+
+def _derive_overall_status(*, runtime_ready: bool, status_counts: dict[str, int]) -> str:
+    if not runtime_ready:
+        return "runtime_blocked"
+    if status_counts.get(SourceStatus.LIVE.value, 0) > 0:
+        return "live"
+    if status_counts.get(SourceStatus.STALE.value, 0) > 0:
+        return "degraded"
+    if status_counts.get(SourceStatus.OFFLINE.value, 0) > 0:
+        return "offline"
+    return "unknown"
