@@ -19,7 +19,7 @@ The format is based on Keep a Changelog, and this repository follows semantic ve
 - Updated `README.md` with the preferred developer workflow and command map.
 - Added `smoke` and `release-compliance` CI lanes, and made the release workflow stop before publish when version/changelog checks fail.
 - Hardened the release workflow with an explicit preflight stage before artifact publication.
-- Tauri now points at build-generated raster icon outputs instead of relying on a single SVG-only bundle reference.
+- Tauri now points at committed desktop bundle icons (`png`, `ico`, `icns`, `svg`) and no longer relies on build-time icon synthesis.
 
 ## [0.2.0] - 2026-05-03
 
