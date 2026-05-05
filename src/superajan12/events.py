@@ -37,6 +37,7 @@ class EventBus:
     def __init__(self, max_queue_size: int = 500) -> None:
         self.max_queue_size = max_queue_size
         self._subscribers: set[asyncio.Queue[EventEnvelope]] = set()
+        self._subscriber_filters: dict[asyncio.Queue[EventEnvelope], set[str] | None] = {}
         self._history: list[EventEnvelope] = []
         self._periodic_tasks: dict[str, asyncio.Task[None]] = {}
         self._periodic_lock = asyncio.Lock()
@@ -52,24 +53,39 @@ class EventBus:
         self._history = self._history[-self.max_queue_size :]
         dead: list[asyncio.Queue[EventEnvelope]] = []
         for queue in self._subscribers:
+            allowed_types = self._subscriber_filters.get(queue)
+            if allowed_types is not None and event.type not in allowed_types:
+                continue
             try:
                 queue.put_nowait(event)
             except asyncio.QueueFull:
                 dead.append(queue)
         for queue in dead:
             self._subscribers.discard(queue)
+            self._subscriber_filters.pop(queue, None)
         return event
 
-    def subscribe(self) -> asyncio.Queue[EventEnvelope]:
+    def subscribe(self, *, event_types: list[str] | set[str] | tuple[str, ...] | None = None) -> asyncio.Queue[EventEnvelope]:
         queue: asyncio.Queue[EventEnvelope] = asyncio.Queue(maxsize=100)
         self._subscribers.add(queue)
+        normalized = None if event_types is None else {str(item) for item in event_types if str(item)}
+        self._subscriber_filters[queue] = normalized
         return queue
 
     def unsubscribe(self, queue: asyncio.Queue[EventEnvelope]) -> None:
         self._subscribers.discard(queue)
+        self._subscriber_filters.pop(queue, None)
 
-    def history(self, limit: int = 100) -> list[dict[str, Any]]:
-        return [event.to_dict() for event in self._history[-limit:]]
+    def history(
+        self,
+        limit: int = 100,
+        *,
+        event_type: str | None = None,
+        event_types: list[str] | set[str] | tuple[str, ...] | None = None,
+    ) -> list[dict[str, Any]]:
+        allowed_types = _normalize_event_types(event_type=event_type, event_types=event_types)
+        events = self._history if allowed_types is None else [event for event in self._history if event.type in allowed_types]
+        return [event.to_dict() for event in events[-limit:]]
 
     def periodic_publisher_names(self) -> list[str]:
         return sorted(name for name, task in self._periodic_tasks.items() if not task.done())
@@ -167,6 +183,19 @@ async def _resolve_payload(payload_factory: PayloadFactory) -> dict[str, Any]:
     else:
         resolved = payload
     return dict(resolved)
+
+
+def _normalize_event_types(
+    *,
+    event_type: str | None,
+    event_types: list[str] | set[str] | tuple[str, ...] | None,
+) -> set[str] | None:
+    normalized: set[str] = set()
+    if event_type:
+        normalized.add(str(event_type))
+    if event_types is not None:
+        normalized.update(str(item) for item in event_types if str(item))
+    return normalized or None
 
 
 event_bus = EventBus()
