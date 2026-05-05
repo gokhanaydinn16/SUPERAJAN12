@@ -18,6 +18,7 @@ Supporting policy docs:
 - [ ] JSONL audit log is written.
 - [ ] CI tests pass.
 - [ ] Lint passes.
+- [ ] Replay and market-state regression lane passes.
 
 ## 2. Data quality
 
@@ -27,6 +28,7 @@ Supporting policy docs:
 - [ ] Rejected/watch/approved distribution is understood.
 - [ ] No unexplained orderbook fallback spike.
 - [ ] Reference price deviations are monitored.
+- [ ] Dedicated replay and market-state CI gate stays green after orderbook changes.
 
 ## 3. Strategy validation
 
