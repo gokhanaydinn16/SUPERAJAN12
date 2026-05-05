@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from time import monotonic
 from typing import Any
+from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
@@ -62,6 +63,16 @@ class ExecutionAcknowledgementRequest(BaseModel):
     acknowledged: bool = True
     note: str | None = None
     acknowledged_by: str = "desktop_operator"
+
+
+class PrepareOrderIntentRequest(BaseModel):
+    market_id: str
+    side: str
+    price: float
+    size: float
+    idempotency_key: str
+    requested_by: str = "desktop_operator"
+    force_guard: bool = False
 
 
 def create_backend_app() -> FastAPI:
@@ -453,6 +464,108 @@ def create_backend_app() -> FastAPI:
         }
         event_bus.publish("execution.snapshot", payload)
         return payload
+
+    @app.post("/execution/intents/prepare")
+    def prepare_execution_intent(request: PrepareOrderIntentRequest) -> dict[str, Any]:
+        settings = ensure_runtime_paths()
+        store = SQLiteStore(settings.sqlite_path)
+        existing = store.get_order_intent_by_idempotency_key(request.idempotency_key)
+        if existing is not None:
+            return {
+                "ok": True,
+                "reused": True,
+                "intent": existing,
+                "events": store.list_execution_events(intent_id=str(existing["intent_id"]), limit=20),
+            }
+
+        safety = get_safety_controller().state()
+        approval_gate = ManualApprovalGate()
+        approval_ticket = approval_gate.request("live_execution", "execution intent preparation")
+        latest_ack = store.latest_operator_acknowledgement(LIVE_EXECUTION_ACK_SCOPE)
+        if latest_ack and bool(latest_ack.get("acknowledged")):
+            approval_ticket = approval_gate.approve(
+                approval_ticket,
+                approved_by=str(latest_ack.get("acknowledged_by") or "operator"),
+            )
+        secret_manager = EnvSecretManager()
+        secret_refs = [
+            secret_manager.has_secret("SUPERAJAN12_LIVE_API_KEY"),
+            secret_manager.has_secret("SUPERAJAN12_LIVE_API_SECRET"),
+        ]
+        secrets_ready = all(secret.present for secret in secret_refs)
+        guard = ExecutionGuard(approval_gate).can_execute(
+            mode=settings.mode,
+            safety_state=safety,
+            approval_ticket=approval_ticket,
+            secrets_ready=secrets_ready,
+        )
+        if request.force_guard:
+            guard = _forced_dry_run_guard()
+        if not guard.allowed:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "message": "execution guard blocked order preparation",
+                    "reasons": list(guard.reasons),
+                    "vetoes": list(guard.vetoes),
+                },
+            )
+
+        order = LiveExecutionConnector().prepare_order(
+            guard_decision=guard,
+            market_id=request.market_id,
+            side=request.side,
+            price=request.price,
+            size=request.size,
+        )
+        intent_id = f"intent_{uuid4().hex}"
+        intent = store.create_order_intent(
+            intent_id=intent_id,
+            idempotency_key=request.idempotency_key,
+            status="prepared",
+            market_id=order.market_id,
+            side=order.side,
+            price=order.price,
+            size=order.size,
+            dry_run=order.dry_run,
+            cancel_on_disconnect=order.cancel_on_disconnect,
+            stale_after_seconds=order.stale_after_seconds,
+            session_id=order.session_id,
+            guard_reasons=guard.reasons,
+            approval_required=True,
+            requested_by=request.requested_by,
+        )
+        event_payload = {
+            "intent_id": str(intent["intent_id"]),
+            "market_id": order.market_id,
+            "side": order.side,
+            "price": order.price,
+            "size": order.size,
+            "dry_run": order.dry_run,
+            "requested_by": request.requested_by,
+            "forced_guard": request.force_guard,
+        }
+        store.record_execution_event(
+            intent_id=str(intent["intent_id"]),
+            event_type="execution.intent.prepared",
+            payload=event_payload,
+        )
+        event_bus.publish("execution.intent.prepared", event_payload)
+        return {
+            "ok": True,
+            "reused": False,
+            "intent": intent,
+            "events": store.list_execution_events(intent_id=str(intent["intent_id"]), limit=20),
+        }
+
+    @app.get("/execution/intents")
+    def execution_intents(
+        limit: int = Query(default=20, ge=1, le=100),
+        status: str | None = Query(default=None),
+    ) -> dict[str, Any]:
+        settings = ensure_runtime_paths()
+        store = SQLiteStore(settings.sqlite_path)
+        return {"intents": store.list_order_intents(limit=limit, status=status)}
 
     @app.post("/execution/operator-acknowledgement")
     def execution_operator_acknowledgement(request: ExecutionAcknowledgementRequest) -> dict[str, Any]:
