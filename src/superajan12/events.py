@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Awaitable, Callable
 from uuid import uuid4
 
 
@@ -23,6 +23,9 @@ class EventEnvelope:
         }
 
 
+PayloadFactory = Callable[[], dict[str, Any] | Awaitable[dict[str, Any]]]
+
+
 class EventBus:
     """Small in-process event bus for desktop live UI updates.
 
@@ -35,6 +38,8 @@ class EventBus:
         self.max_queue_size = max_queue_size
         self._subscribers: set[asyncio.Queue[EventEnvelope]] = set()
         self._history: list[EventEnvelope] = []
+        self._periodic_tasks: dict[str, asyncio.Task[None]] = {}
+        self._periodic_lock = asyncio.Lock()
 
     def publish(self, event_type: str, payload: dict[str, Any] | None = None) -> EventEnvelope:
         event = EventEnvelope(
@@ -65,6 +70,103 @@ class EventBus:
 
     def history(self, limit: int = 100) -> list[dict[str, Any]]:
         return [event.to_dict() for event in self._history[-limit:]]
+
+    def periodic_publisher_names(self) -> list[str]:
+        return sorted(name for name, task in self._periodic_tasks.items() if not task.done())
+
+    async def ensure_periodic_publisher(
+        self,
+        name: str,
+        *,
+        event_type: str,
+        payload_factory: PayloadFactory,
+        interval_seconds: float,
+        publish_immediately: bool = True,
+    ) -> bool:
+        """Ensure exactly one periodic publisher loop per name.
+
+        Returns True when a new loop is created, False when a live loop already exists.
+        """
+
+        if interval_seconds <= 0:
+            raise ValueError("interval_seconds must be > 0")
+
+        async with self._periodic_lock:
+            running = self._periodic_tasks.get(name)
+            if running is not None and not running.done():
+                return False
+
+            task = asyncio.create_task(
+                self._run_periodic_publisher(
+                    name=name,
+                    event_type=event_type,
+                    payload_factory=payload_factory,
+                    interval_seconds=interval_seconds,
+                    publish_immediately=publish_immediately,
+                )
+            )
+            self._periodic_tasks[name] = task
+            return True
+
+    async def stop_periodic_publisher(self, name: str) -> bool:
+        async with self._periodic_lock:
+            task = self._periodic_tasks.pop(name, None)
+        if task is None:
+            return False
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        return True
+
+    async def stop_all_periodic_publishers(self) -> None:
+        names = self.periodic_publisher_names()
+        for name in names:
+            await self.stop_periodic_publisher(name)
+
+    async def _run_periodic_publisher(
+        self,
+        *,
+        name: str,
+        event_type: str,
+        payload_factory: PayloadFactory,
+        interval_seconds: float,
+        publish_immediately: bool,
+    ) -> None:
+        try:
+            if publish_immediately:
+                payload = await _resolve_payload(payload_factory)
+                self.publish(event_type, payload)
+
+            while True:
+                await asyncio.sleep(interval_seconds)
+                payload = await _resolve_payload(payload_factory)
+                self.publish(event_type, payload)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            self.publish(
+                "event_bus.periodic.error",
+                {
+                    "name": name,
+                    "event_type": event_type,
+                    "error": f"{exc.__class__.__name__}: {exc}",
+                },
+            )
+        finally:
+            current = self._periodic_tasks.get(name)
+            if current is not None and current.done():
+                self._periodic_tasks.pop(name, None)
+
+
+async def _resolve_payload(payload_factory: PayloadFactory) -> dict[str, Any]:
+    payload = payload_factory()
+    if asyncio.iscoroutine(payload):
+        resolved = await payload
+    else:
+        resolved = payload
+    return dict(resolved)
 
 
 event_bus = EventBus()
