@@ -13,12 +13,28 @@ from superajan12.connectors.polymarket import PolymarketClient
 from superajan12.models import ScanResult
 from superajan12.storage import SQLiteStore
 
+_RUNTIME_BOOTSTRAPPED = False
+
 
 def ensure_runtime_paths(settings: Settings | None = None) -> Settings:
     settings = settings or get_settings()
     SQLiteStore(settings.sqlite_path)
     settings.audit_log_path.parent.mkdir(parents=True, exist_ok=True)
     return settings
+
+
+def bootstrap_runtime(settings: Settings | None = None) -> Settings:
+    global _RUNTIME_BOOTSTRAPPED
+    resolved = ensure_runtime_paths(settings)
+    _RUNTIME_BOOTSTRAPPED = True
+    return resolved
+
+
+def runtime_settings(settings: Settings | None = None) -> Settings:
+    resolved = settings or get_settings()
+    if not _RUNTIME_BOOTSTRAPPED:
+        return bootstrap_runtime(resolved)
+    return resolved
 
 
 def build_polymarket_client(settings: Settings | None = None) -> PolymarketClient:
