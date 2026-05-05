@@ -42,6 +42,7 @@ make test
 make test-compat
 make check
 make smoke
+pytest -q tests/test_orderbook_replay.py tests/test_market_state.py
 ```
 
 ### Network-backed validation
@@ -90,6 +91,7 @@ Use this before opening a PR when dependency versions or lockfile behavior chang
 - `make test-compat`: use when you need to prove the repository's fallback runtime still works.
 - `make check`: use before PRs or when touching shared code paths.
 - `make smoke`: use for quick confidence that the local CLI/reporting surfaces still start and query storage.
+- `pytest -q tests/test_orderbook_replay.py tests/test_market_state.py`: use when touching replay, orderbook, or market-state logic so the dedicated CI lane does not surprise you.
 
 ## Working agreements for future changes
 
