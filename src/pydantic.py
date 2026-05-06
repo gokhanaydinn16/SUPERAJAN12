@@ -15,6 +15,7 @@ AnyHttpUrl = str
 class _FieldInfo:
     default: Any = ...
     default_factory: Any = None
+    alias: str | None = None
     validation_alias: str | None = None
 
     def get_default(self) -> Any:
@@ -29,18 +30,21 @@ def Field(
     default: Any = ...,
     *,
     default_factory: Any = None,
+    alias: str | None = None,
     validation_alias: str | None = None,
     **_: Any,
 ) -> _FieldInfo:
     return _FieldInfo(
         default=default,
         default_factory=default_factory,
+        alias=alias,
         validation_alias=validation_alias,
     )
 
 
 class BaseModel:
     model_fields: dict[str, _FieldInfo] = {}
+    model_config: dict[str, Any] = {"populate_by_name": True}
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
@@ -52,9 +56,17 @@ class BaseModel:
         fields: dict[str, _FieldInfo] = {}
         for base in reversed(cls.__mro__[1:]):
             fields.update(getattr(base, "model_fields", {}))
+        config: dict[str, Any] = {"populate_by_name": True}
+        for base in reversed(cls.__mro__[1:]):
+            base_config = getattr(base, "model_config", None)
+            if isinstance(base_config, dict):
+                config.update(base_config)
+        raw_config = getattr(cls, "model_config", None)
+        if isinstance(raw_config, dict):
+            config.update(raw_config)
 
         for name in annotations:
-            if name == "model_fields":
+            if name in {"model_fields", "model_config"}:
                 continue
             raw_default = getattr(cls, name, ...)
             if isinstance(raw_default, _FieldInfo):
@@ -63,13 +75,22 @@ class BaseModel:
                 info = _FieldInfo(default=raw_default)
             fields[name] = info
         cls.model_fields = fields
+        cls.model_config = config
 
     def __init__(self, **data: Any) -> None:
         annotations = self._model_annotations()
+        populate_by_name = bool(self.model_config.get("populate_by_name", True))
         for name, info in self.model_fields.items():
-            if name in data:
-                value = data[name]
-            else:
+            value = ...
+            candidates = []
+            if populate_by_name:
+                candidates.append(name)
+            candidates.extend([info.alias, info.validation_alias])
+            for candidate in candidates:
+                if candidate and candidate in data:
+                    value = data[candidate]
+                    break
+            if value is ...:
                 value = info.get_default()
                 if value is ...:
                     raise TypeError(f"Missing required field: {name}")
@@ -83,10 +104,10 @@ class BaseModel:
             annotations.update(getattr(base, "__annotations__", {}))
         return annotations
 
-    def model_dump(self, mode: str | None = None) -> dict[str, Any]:
+    def model_dump(self, mode: str | None = None, by_alias: bool = False) -> dict[str, Any]:
         return {
-            name: _serialize_value(getattr(self, name), mode=mode)
-            for name in self.model_fields
+            (info.alias if by_alias and info.alias else name): _serialize_value(getattr(self, name), mode=mode)
+            for name, info in self.model_fields.items()
         }
 
 

@@ -1,5 +1,6 @@
-from fastapi import Cookie, FastAPI, Header, Query, WebSocket
+from fastapi import Body, Cookie, FastAPI, Header, Query, WebSocket
 from fastapi.testclient import TestClient
+from pydantic import BaseModel, Field
 
 
 def test_websocket_connect_parses_query_params() -> None:
@@ -100,3 +101,96 @@ def test_http_request_supports_query_header_and_cookie_aliases() -> None:
         "trace_id": "req-7",
         "session_token": "cookie-7",
     }
+
+
+def test_http_request_supports_body_alias_for_scalars_and_models() -> None:
+    app = FastAPI(title="test", version="0")
+
+    class Payload(BaseModel):
+        value: int = Field(alias="v")
+        legacy: int = Field(validation_alias="legacy_value")
+
+    @app.post("/inspect-body")
+    def inspect_body(
+        count: int = Body(..., alias="c"),
+        payload: Payload | None = None,
+    ) -> dict[str, int]:
+        assert payload is not None
+        return {
+            "count": count,
+            "value": payload.value,
+            "legacy": payload.legacy,
+        }
+
+    client = TestClient(app)
+    response = client.post(
+        "/inspect-body",
+        json={"c": "5", "v": "3", "legacy_value": "7"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "count": 5,
+        "value": 3,
+        "legacy": 7,
+    }
+
+
+def test_pydantic_field_name_wins_over_aliases_when_multiple_keys_exist() -> None:
+    class Payload(BaseModel):
+        value: int = Field(alias="v", validation_alias="legacy_value")
+
+    payload = Payload(value="9", v="3", legacy_value="7")
+
+    assert payload.value == 9
+
+
+def test_http_request_supports_embedded_body_aliases() -> None:
+    app = FastAPI(title="test", version="0")
+
+    class Payload(BaseModel):
+        value: int = Field(alias="v")
+
+    @app.post("/inspect-embed")
+    def inspect_embed(
+        count: int = Body(..., alias="c", embed=True),
+        payload: Payload = Body(..., embed=True),
+    ) -> dict[str, int]:
+        return {"count": count, "value": payload.value}
+
+    client = TestClient(app)
+    response = client.post(
+        "/inspect-embed",
+        json={"c": "5", "payload": {"v": "11"}},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"count": 5, "value": 11}
+
+
+def test_embedded_body_requires_wrapped_key() -> None:
+    app = FastAPI(title="test", version="0")
+
+    @app.post("/inspect-embed")
+    def inspect_embed(count: int = Body(..., embed=True)) -> dict[str, int]:
+        return {"count": count}
+
+    client = TestClient(app)
+    try:
+        client.post("/inspect-embed", json={"value": 4})
+    except TypeError as exc:
+        assert "Missing required body parameter: count" in str(exc)
+    else:
+        raise AssertionError("Expected missing embedded body key to fail")
+
+
+def test_pydantic_model_dump_supports_by_alias() -> None:
+    class Payload(BaseModel):
+        value: int = Field(alias="v")
+        model_config = {"populate_by_name": False}
+
+    payload = Payload(v="8")
+
+    assert payload.value == 8
+    assert payload.model_dump() == {"value": 8}
+    assert payload.model_dump(by_alias=True) == {"v": 8}
