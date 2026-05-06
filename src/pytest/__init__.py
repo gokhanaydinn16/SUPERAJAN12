@@ -1,5 +1,5 @@
 from __future__ import annotations
 
-from ._api import mark, raises
+from ._api import fixture, mark, raises
 
-__all__ = ["mark", "raises"]
+__all__ = ["fixture", "mark", "raises"]
