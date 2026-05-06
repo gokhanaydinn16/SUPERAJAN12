@@ -15,6 +15,7 @@ AnyHttpUrl = str
 class _FieldInfo:
     default: Any = ...
     default_factory: Any = None
+    alias: str | None = None
     validation_alias: str | None = None
 
     def get_default(self) -> Any:
@@ -29,12 +30,14 @@ def Field(
     default: Any = ...,
     *,
     default_factory: Any = None,
+    alias: str | None = None,
     validation_alias: str | None = None,
     **_: Any,
 ) -> _FieldInfo:
     return _FieldInfo(
         default=default,
         default_factory=default_factory,
+        alias=alias,
         validation_alias=validation_alias,
     )
 
@@ -67,9 +70,12 @@ class BaseModel:
     def __init__(self, **data: Any) -> None:
         annotations = self._model_annotations()
         for name, info in self.model_fields.items():
-            if name in data:
-                value = data[name]
-            else:
+            value = ...
+            for candidate in (name, info.alias, info.validation_alias):
+                if candidate and candidate in data:
+                    value = data[candidate]
+                    break
+            if value is ...:
                 value = info.get_default()
                 if value is ...:
                     raise TypeError(f"Missing required field: {name}")
