@@ -37,6 +37,10 @@ def Cookie(default: Any = ..., *, alias: str | None = None) -> ParamValue:
     return ParamValue(source="cookie", default=default, alias=alias)
 
 
+def Body(default: Any = ..., *, alias: str | None = None, embed: bool = False) -> ParamValue:
+    return ParamValue(source="body", default=default, alias=alias)
+
+
 @dataclass
 class HTTPException(Exception):
     status_code: int
