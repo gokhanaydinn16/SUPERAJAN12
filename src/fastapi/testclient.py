@@ -312,8 +312,16 @@ def _resolve_request_value(*, name: str, annotation: Any, default: Any, inputs: 
 def _resolve_body_value(*, name: str, annotation: Any, default: Any, json_body: dict[str, Any]) -> tuple[bool, Any]:
     if isinstance(default, ParamValue) and default.source == "body":
         for candidate in _body_candidates(name=name, marker=default):
-            if candidate in json_body:
-                return True, _coerce_value(json_body[candidate], annotation)
+            if candidate not in json_body:
+                continue
+            if default.embed:
+                return True, _coerce_embedded_body_value(json_body[candidate], annotation)
+            return True, _coerce_value(json_body[candidate], annotation)
+        if default.embed:
+            return False, None
+        model_type = _body_model_type(annotation)
+        if model_type is not None:
+            return True, model_type(**json_body)
         return False, None
 
     model_type = _body_model_type(annotation)
@@ -326,6 +334,16 @@ def _resolve_body_value(*, name: str, annotation: Any, default: Any, json_body: 
 
 def _body_candidates(*, name: str, marker: ParamValue) -> list[str]:
     return [item for item in (marker.alias, name) if item]
+
+
+def _coerce_embedded_body_value(value: Any, annotation: Any) -> Any:
+    model_type = _body_model_type(annotation)
+    if model_type is not None:
+        if isinstance(value, model_type):
+            return value
+        if isinstance(value, dict):
+            return model_type(**value)
+    return _coerce_value(value, annotation)
 
 
 def _body_model_type(annotation: Any) -> type[BaseModel] | None:
