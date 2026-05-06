@@ -143,3 +143,54 @@ def test_pydantic_field_name_wins_over_aliases_when_multiple_keys_exist() -> Non
     payload = Payload(value="9", v="3", legacy_value="7")
 
     assert payload.value == 9
+
+
+def test_http_request_supports_embedded_body_aliases() -> None:
+    app = FastAPI(title="test", version="0")
+
+    class Payload(BaseModel):
+        value: int = Field(alias="v")
+
+    @app.post("/inspect-embed")
+    def inspect_embed(
+        count: int = Body(..., alias="c", embed=True),
+        payload: Payload = Body(..., embed=True),
+    ) -> dict[str, int]:
+        return {"count": count, "value": payload.value}
+
+    client = TestClient(app)
+    response = client.post(
+        "/inspect-embed",
+        json={"c": "5", "payload": {"v": "11"}},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"count": 5, "value": 11}
+
+
+def test_embedded_body_requires_wrapped_key() -> None:
+    app = FastAPI(title="test", version="0")
+
+    @app.post("/inspect-embed")
+    def inspect_embed(count: int = Body(..., embed=True)) -> dict[str, int]:
+        return {"count": count}
+
+    client = TestClient(app)
+    try:
+        client.post("/inspect-embed", json={"value": 4})
+    except TypeError as exc:
+        assert "Missing required body parameter: count" in str(exc)
+    else:
+        raise AssertionError("Expected missing embedded body key to fail")
+
+
+def test_pydantic_model_dump_supports_by_alias() -> None:
+    class Payload(BaseModel):
+        value: int = Field(alias="v")
+        model_config = {"populate_by_name": False}
+
+    payload = Payload(v="8")
+
+    assert payload.value == 8
+    assert payload.model_dump() == {"value": 8}
+    assert payload.model_dump(by_alias=True) == {"v": 8}
