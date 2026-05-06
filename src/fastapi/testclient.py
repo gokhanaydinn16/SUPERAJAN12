@@ -11,7 +11,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from pydantic import BaseModel
 
-from .app import Cookie, FastAPI, HTTPException, Header, ParamValue, Query, WebSocket, WebSocketDisconnect
+from .app import Body, Cookie, FastAPI, HTTPException, Header, ParamValue, Query, WebSocket, WebSocketDisconnect
 from .responses import HTMLResponse
 
 _QUEUE_SENTINEL = object()
@@ -269,11 +269,14 @@ def _build_kwargs(
             continue
 
         if json_body is not None:
-            if inspect.isclass(annotation) and issubclass(annotation, BaseModel):
-                kwargs[name] = annotation(**json_body)
-                continue
-            if name in json_body:
-                kwargs[name] = _coerce_value(json_body[name], annotation)
+            body_found, body_value = _resolve_body_value(
+                name=name,
+                annotation=annotation,
+                default=default,
+                json_body=json_body,
+            )
+            if body_found:
+                kwargs[name] = body_value
                 continue
 
         if isinstance(default, ParamValue):
@@ -289,6 +292,8 @@ def _build_kwargs(
 
 def _resolve_request_value(*, name: str, annotation: Any, default: Any, inputs: _RequestInputs) -> tuple[bool, Any]:
     if isinstance(default, ParamValue):
+        if default.source == "body":
+            return False, None
         source_values = {
             "query": inputs.query_params,
             "header": inputs.headers,
@@ -302,6 +307,39 @@ def _resolve_request_value(*, name: str, annotation: Any, default: Any, inputs: 
     if name in inputs.query_params:
         return True, _coerce_value(inputs.query_params[name], annotation)
     return False, None
+
+
+def _resolve_body_value(*, name: str, annotation: Any, default: Any, json_body: dict[str, Any]) -> tuple[bool, Any]:
+    if isinstance(default, ParamValue) and default.source == "body":
+        for candidate in _body_candidates(name=name, marker=default):
+            if candidate in json_body:
+                return True, _coerce_value(json_body[candidate], annotation)
+        return False, None
+
+    model_type = _body_model_type(annotation)
+    if model_type is not None:
+        return True, model_type(**json_body)
+    if name in json_body:
+        return True, _coerce_value(json_body[name], annotation)
+    return False, None
+
+
+def _body_candidates(*, name: str, marker: ParamValue) -> list[str]:
+    return [item for item in (marker.alias, name) if item]
+
+
+def _body_model_type(annotation: Any) -> type[BaseModel] | None:
+    if inspect.isclass(annotation) and issubclass(annotation, BaseModel):
+        return annotation
+    origin = get_origin(annotation)
+    args = get_args(annotation)
+    if origin is not None and args:
+        for arg in args:
+            if arg is type(None):
+                continue
+            if inspect.isclass(arg) and issubclass(arg, BaseModel):
+                return arg
+    return None
 
 
 def _lookup_candidates(*, name: str, marker: ParamValue) -> list[str]:
