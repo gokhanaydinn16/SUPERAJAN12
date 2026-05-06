@@ -1,11 +1,19 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+from typing import Any, Callable
 
 
 class _Mark:
     def asyncio(self, func):
         return func
+
+
+def fixture(func: Callable[..., Any] | None = None, *, scope: str = "function"):
+    if func is None:
+        return lambda inner: fixture(inner, scope=scope)
+    setattr(func, "_pytest_fixture", {"scope": scope})
+    return func
 
 
 mark = _Mark()
