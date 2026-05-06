@@ -1,18 +1,40 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import Any, Callable
 
 
 @dataclass
-class QueryValue:
+class ParamValue:
+    source: str
     default: Any = ...
+    alias: str | None = None
     ge: Any = None
     le: Any = None
+    convert_underscores: bool = False
 
 
-def Query(default: Any = ..., ge: Any = None, le: Any = None) -> QueryValue:
-    return QueryValue(default=default, ge=ge, le=le)
+def Query(default: Any = ..., *, alias: str | None = None, ge: Any = None, le: Any = None) -> ParamValue:
+    return ParamValue(source="query", default=default, alias=alias, ge=ge, le=le)
+
+
+def Header(
+    default: Any = ...,
+    *,
+    alias: str | None = None,
+    convert_underscores: bool = True,
+) -> ParamValue:
+    return ParamValue(
+        source="header",
+        default=default,
+        alias=alias,
+        convert_underscores=convert_underscores,
+    )
+
+
+def Cookie(default: Any = ..., *, alias: str | None = None) -> ParamValue:
+    return ParamValue(source="cookie", default=default, alias=alias)
 
 
 @dataclass
@@ -34,6 +56,15 @@ class WebSocket:
 
     async def send_text(self, text: str) -> None:
         return None
+
+    async def send_json(self, payload: Any) -> None:
+        await self.send_text(json.dumps(payload))
+
+    async def receive_text(self) -> str:
+        raise WebSocketDisconnect()
+
+    async def receive_json(self) -> Any:
+        return json.loads(await self.receive_text())
 
 
 @dataclass
