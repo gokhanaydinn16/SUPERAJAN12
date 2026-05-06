@@ -13,6 +13,7 @@ class ParamValue:
     ge: Any = None
     le: Any = None
     convert_underscores: bool = False
+    embed: bool = False
 
 
 def Query(default: Any = ..., *, alias: str | None = None, ge: Any = None, le: Any = None) -> ParamValue:
@@ -38,7 +39,7 @@ def Cookie(default: Any = ..., *, alias: str | None = None) -> ParamValue:
 
 
 def Body(default: Any = ..., *, alias: str | None = None, embed: bool = False) -> ParamValue:
-    return ParamValue(source="body", default=default, alias=alias)
+    return ParamValue(source="body", default=default, alias=alias, embed=embed)
 
 
 @dataclass
